@@ -22559,36 +22559,36 @@ local ThemeManager = {
         ["Discord"] = { 19, { FontColor = "ffffff", MainColor = "1a1a1e", AccentColor = "5865f2", BackgroundColor = "1a1a1e", OutlineColor = "292a2d" } }
     },
     Fonts = {
-		"Antique",
-		"Arcade",
-		"Arial",
-		"ArialBold",
-		"Bodoni",
-		"BuilderSans",
-		"Cartoon",
-		"Code",
-		"Fantasy",
-		"Garamond",
-		"Gotham",
-		"GothamBlack",
-		"GothamBold",
-		"GothamMedium",
-		"Highway",
-		"JosefinSans",
-		"Jura",
-		"Legacy",
-		"LuckiestGuy",
-		"Merriweather",
-		"Nunito",
-		"Roboto",
-		"RobotoCondensed",
-		"RobotoMono",
-		"SciFi",
-		"SourceSans",
-		"SourceSansBold",
-		"SourceSansItalic",
-		"Ubuntu"
-	}
+                "Antique",
+                "Arcade",
+                "Arial",
+                "ArialBold",
+                "Bodoni",
+                "BuilderSans",
+                "Cartoon",
+                "Code",
+                "Fantasy",
+                "Garamond",
+                "Gotham",
+                "GothamBlack",
+                "GothamBold",
+                "GothamMedium",
+                "Highway",
+                "JosefinSans",
+                "Jura",
+                "Legacy",
+                "LuckiestGuy",
+                "Merriweather",
+                "Nunito",
+                "Roboto",
+                "RobotoCondensed",
+                "RobotoMono",
+                "SciFi",
+                "SourceSans",
+                "SourceSansBold",
+                "SourceSansItalic",
+                "Ubuntu"
+        }
 }
 do
     local ThemeFields = {
@@ -24359,14 +24359,16 @@ do
                                                         EKIPhysicsRep = true, -- sethiddenproperty PhysicsRepRootPart
                                                         EKIRemoteInterval = 0.3, -- скорость отправки (интервал, сек)
                                                         EKINetworkSleepOff = true, -- NetworkIsSleeping = false
-                                                        -- Байпас Sticky Anti Grab у цели
-                                                        EKIBypassSticky = true,
-                                                        EKIBypassSNO = true, -- забирать network ownership сборки
-                                                        EKIBypassLocalUnweld = true, -- локально сносить sticky-weld'ы
-                                                        EKIBypassDestroyToy = true, -- серверный DestroyToy по игрушке
-                                                        EKIBypassFlingToy = true, -- флинг игрушки в войд
-                                                        EKIBypassTouchInterest = true, -- сносить TouchInterest
-                                                        EKIBypassInterval = 0.2, -- как часто повторять байпас (сек)
+                                                        -- Force Lift: подъём sticky-цели БЕЗ снятия стиков
+                                                        -- (граб-клейм + CFrame-записи всей модели)
+                                                        EKIForceLift = true, -- Force Lift включён
+                                                        EKIForceLiftInterval = 0.06, -- как часто повторять подъём (сек)
+                                                        -- Удержание: импульс и владение (цель не может вырваться)
+                                                        EKIKeepOwnership = true, -- перезабирать network ownership рута цели
+                                                        EKIZeroVelocity = true, -- обнулять скорости (цель не набирает импульс)
+                                                        -- Модель цели
+                                                        EKITouchOff = false, -- CanTouch/CanQuery = false у частей цели
+                                                        EKIBreakSeatWeld = true, -- ломать SeatWeld (цель не может привариться сидя)
                                                         AutoHouse = false,
                                                         Invisibility = false,
                                                         GradientLine = false,
@@ -27541,119 +27543,61 @@ end
                                 end
 
                                 -- ============================================================
-                                -- Sticky Anti Grab BYPASS (Experimental Kick Improvements)
-                                -- Если у цели включён Sticky Anti Grab — к её телу приварена
-                                -- деталь (StickyPart) на астрономическом оффсете (~1e98):
-                                -- физика сборки цели NaN-ится и поднять/двигать её невозможно.
-                                --
-                                -- Методы байпаса (все настраиваются во вкладке Experimental):
-                                --   1. SNO корня цели — забираем network ownership сборки,
-                                --      физику сборки теперь считает НАШ клиент.
-                                --   2. Локальный снос weld'ов между телом и далёкой деталью
-                                --      (клиентский destroy не реплицируется, но мы владеем
-                                --      физикой — сервер принимает нашу симуляцию, цель
-                                --      снова поднимается и удерживается).
-                                --   3. Снос TouchInterest у StickyPart — не приклеится обратно.
-                                --   4. Серверный DestroyToy — если игра позволяет, игрушка
-                                --      исчезает вместе со sticky-деталью совсем.
-                                --   5. Флинг игрушки в войд (как Remove Anti-Kick): забираем
-                                --      игрушку и уносим её на (0, -50000, 0) — отрываем sticky.
+                                -- FORCE LIFT — подъём цели со Sticky Anti Grab БЕЗ снятия
+                                -- стиков (мы их вообще не трогаем). Вместо борьбы со стиком
+                                -- поднимаем саму МОДЕЛЬ цели, в обход физики сборки:
+                                --   1. Граб-клейм (SNO / SetNetworkOwner) по РУТУ цели:
+                                --      пока мы PartOwner, наши CFrame-записи реплицируются
+                                --      на сервер (владение в этой игре даётся на сборку).
+                                --   2. Кинематический подъём: пишем CFrame КАЖДОЙ части
+                                --      модели цели (тот же приём, что BringPlayer) —
+                                --      кинематика вместо силы, приваренная далёкая деталь
+                                --      подъёму не мешает.
+                                --   3. ResetVelocity на все части — лечит NaN-скорости
+                                --      взорвавшейся сборки.
+                                --   4. Teleport по руту — прямой дубль записи.
                                 -- ============================================================
-                                Hub.BypassStickyAntiGrab = function(character, rootPart)
-                                        if not (character and character.Parent) then
+                                Hub.ForceLiftTarget = function(character, rootPart, holdPoint, humanoid)
+                                        if not (character and character.Parent and rootPart and rootPart.Parent and holdPoint) then
                                                 return false
                                         end
-
-                                        local FAR = 1e9
-                                        local fixed = 0
-
-                                        -- 1) Ownership: без него локальные правки физики бессмысленны
-                                        if Config.EKIBypassSNO and rootPart and rootPart.Parent and not Hub.IsNetworkOwner(rootPart) then
-                                                pcall(Hub.Grab, rootPart)
+                                        
+                                        -- 1) Граб-клейм: без PartOwner наши CFrame-записи не
+                                        --    реплицируются. SNO сам спамит Grab и ждёт метку.
+                                        if not Hub.IsPartOwner(rootPart) then
+                                                task.spawn(Hub.SNO, rootPart, 0.2)
                                         end
-
-                                        -- 2) Обходим части тела, ищем приваренное «далёкое»
-                                        for _, bodyPart in ipairs(character:QueryDescendants("BasePart")) do
-                                                if bodyPart and bodyPart.Parent then
-                                                        local ok, connected = pcall(bodyPart.GetConnectedParts, bodyPart)
-
-                                                        if ok and connected then
-                                                                for _, other in ipairs(connected) do
-                                                                        if other ~= bodyPart and other:IsA("BasePart") and other.Parent then
-                                                                                local far = false
-
-                                                                                pcall(function()
-                                                                                        local pos = other.Position
-                                                                                        far = pos.X ~= pos.X or pos.Y ~= pos.Y or pos.Z ~= pos.Z or pos.Magnitude > FAR
-                                                                                end)
-
-                                                                                local sticky = other.Name == "StickyPart"
-
-                                                                                if far or sticky then
-                                                                                        -- 3) TouchInterest — чтобы заново не приклеился касанием
-                                                                                        if Config.EKIBypassTouchInterest then
-                                                                                                for _, sub in ipairs(other:GetChildren()) do
-                                                                                                        if sub:IsA("TouchInterest") then
-                                                                                                                pcall(function()
-                                                                                                                        sub:Destroy()
-                                                                                                                end)
-                                                                                                        end
-                                                                                                end
-                                                                                        end
-
-                                                                                        -- 4) Локально сносим weld между телом и далёкой частью
-                                                                                        if Config.EKIBypassLocalUnweld then
-                                                                                                for _, side in ipairs({ bodyPart, other }) do
-                                                                                                        for _, sub in ipairs(side:GetChildren()) do
-                                                                                                                if sub:IsA("Weld") or sub:IsA("WeldConstraint") or sub:IsA("Motor6D") then
-                                                                                                                        local p0, p1 = sub.Part0, sub.Part1
-
-                                                                                                                        if (p0 == bodyPart and p1 == other) or (p0 == other and p1 == bodyPart) then
-                                                                                                                                pcall(function()
-                                                                                                                                        sub.Enabled = false
-                                                                                                                                        sub:Destroy()
-                                                                                                                                end)
-                                                                                                                                fixed = fixed + 1
-                                                                                                                        end
-                                                                                                                end
-                                                                                                        end
-                                                                                                end
-                                                                                        end
-
-                                                                                        local toy = other:FindFirstAncestorOfClass("Model")
-
-                                                                                        -- 5) Серверный DestroyToy
-                                                                                        if toy and Config.EKIBypassDestroyToy then
-                                                                                                pcall(function()
-                                                                                                        Remotes.DestroyToy:FireServer(toy)
-                                                                                                end)
-                                                                                        end
-
-                                                                                        -- 6) Флинг игрушки в войд
-                                                                                        if toy and Config.EKIBypassFlingToy then
-                                                                                                local nice = Hub.FindNicePart(toy)
-
-                                                                                                if nice and nice.Parent and not nice:FindFirstChild("LHBypassBV") then
-                                                                                                        pcall(function()
-                                                                                                                Hub.Grab(nice)
-                                                                                                                local bypassBV = Instance.new("BodyVelocity")
-                                                                                                                bypassBV.Velocity = Vector3.new(0, -50000, 0)
-                                                                                                                bypassBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                bypassBV.Name = "LHBypassBV"
-                                                                                                                bypassBV.Parent = nice
-                                                                                                                Hub.PivotTo(toy, CFrame.new(0, -50000, 0))
-                                                                                                        end)
-                                                                                                        task.delay(1, Hub.RNO, nice)
-                                                                                                end
-                                                                                        end
-                                                                                end
-                                                                        end
-                                                                end
+                                        
+                                        -- 2) Точка подъёма (Vector3 или CFrame)
+                                        local targetCF = holdPoint
+                                        if typeof(targetCF) == "Vector3" then
+                                                targetCF = CFrame.new(targetCF)
+                                        end
+                                        
+                                        -- 3) Кинематический подъём всей модели (как BringPlayer):
+                                        --    двигаем корнем, поза модели сохраняется. Если рут
+                                        --    уже NaN (физика взорвалась) — PivotTo пропускаем,
+                                        --    рут вылечит прямая запись ниже.
+                                        pcall(function()
+                                                local rootCF = rootPart.CFrame
+                                                local rootPos = rootCF.Position
+                                                if rootPos.X == rootPos.X and rootPos.Y == rootPos.Y and rootPos.Z == rootPos.Z then
+                                                        Hub.PivotTo(character, targetCF * rootCF:Inverse() * character:GetPivot())
+                                                end
+                                        end)
+                                        
+                                        -- 4) Обнуляем скорости всех частей (лечит NaN) и
+                                        --    дублируем подъём прямой записью по руту.
+                                        pcall(function()
+                                                for _, part in ipairs(character:QueryDescendants("BasePart")) do
+                                                        if part.Parent then
+                                                                Hub.ResetVelocity(part)
                                                         end
                                                 end
-                                        end
-
-                                return fixed > 0
+                                        end)
+                                        
+                                        pcall(Hub.Teleport, rootPart, targetCF)
+                                        return true
                                 end
                                 Hub.Ragdoll = function(obj52)
                                         if not obj52 or not obj52.Parent or State.States.Ragdolling then
@@ -28631,1934 +28575,626 @@ end
                                         end
 
                                         do
-                                                local Runtime = nil
-                                                local miscVar1039 = nil
+                                                -- [GUCCI FPS FIX v2] -------------------------------------------------------------
+                                                -- Старый код был одноразовой последовательностью, в которой каждый шаг длился
+                                                -- ровно один кадр: шаги через один task.wait(), пакеты рэгдолла по числу кадров,
+                                                -- фиксированный таймаут SeatWeld 6 секунд и перехват владельца через RenderStep.
+                                                -- На низком FPS такая последовательность рассыпается по времени, и GUCCI не
+                                                -- срабатывал.  Здесь стоит не зависящий от FPS самовосстанавливающийся цикл (тот
+                                                -- же, что в скрипте с "Auto Gucci"): ничего не считается кадрами, возраст игрушки
+                                                -- измеряется в секундах, испорченная игрушка заменяется самим циклом, игрушка
+                                                -- улетает через скорость вместо BodyPosition, а персонаж возвращается на место по
+                                                -- событию SeatPart, а не по задержкам на кадры.  На каждую попытку сесть уходит
+                                                -- ровно один пакет RagdollRemote.
+                                                local Gucci = nil
+                                                local gucciSwitching = false
 
-                                                local function warnHelper36(obj50)
-                                                        if not obj50.Parent or obj50.Health <= 0 then
-                                                                return
-                                                        end
-                                                        obj50.Sit = true
-                                                        task.wait(0.05)
-
-                                                        if obj50.Parent then
-                                                                obj50.Sit = false
-                                                        end
-
-                                                        task.wait(0.05)
+                                                local function gucciToyRoot(model)
+                                                        return model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("SoundPart")
                                                 end
 
-                                                local function warnHelper37()
-                                                        if not Runtime then
+                                                local function gucciToySeat(model)
+                                                        return model:FindFirstChild("VehicleSeat")
+                                                end
+
+                                                local function gucciToyFolder()
+                                                        if name45 and name45.Parent then
+                                                                return name45
+                                                        end
+
+                                                        return workspace:FindFirstChild(localPlayer.Name .. "SpawnedInToys")
+                                                end
+
+                                                local function gucciCanSpawnToy()
+                                                        local flag = localPlayer:FindFirstChild("CanSpawnToy")
+
+                                                        if not flag then
+                                                                return true
+                                                        end
+
+                                                        return flag.Value and true or false
+                                                end
+
+                                                local function gucciDataPing()
+                                                        local ok, value = pcall(function()
+                                                                return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()
+                                                        end)
+
+                                                        if ok and type(value) == "number" and value == value then
+                                                                return math.max(value, 0)
+                                                        end
+
+                                                        return 100
+                                                end
+
+                                                local function gucciSpawnToy(gucciType, hrp)
+                                                        task.spawn(function()
+                                                                local remote = Remotes.SpawnToy
+
+                                                                -- Remotes.* собираются в начале работы скрипта с таймаутом 0.5 с;
+                                                                -- если тогда папка ещё не загрузилась, берём remot напрямую
+                                                                if not remote then
+                                                                        pcall(function()
+                                                                                remote = ReplicatedStorage:WaitForChild("MenuToys", 3):WaitForChild("SpawnToyRemoteFunction", 3)
+                                                                        end)
+                                                                end
+
+                                                                if remote then
+                                                                        remote:InvokeServer(gucciType, hrp.CFrame * CFrame.new(0, 100000000, 10), Vector3.new(0, 0, 0))
+                                                                end
+                                                        end)
+                                                end
+
+                                                local function gucciDestroyToy(model)
+                                                        if model then
+                                                                task.spawn(function()
+                                                                        Remotes.DestroyToy:FireServer(model)
+                                                                end)
+                                                        end
+                                                end
+
+                                                -- одноразовый обработчик события (то же, что RBXScriptSignal:Once)
+                                                local function gucciHookSeatPart(humanoid, handler)
+                                                        local connection
+
+                                                        connection = humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
+                                                                connection:Disconnect()
+                                                                handler()
+                                                        end)
+
+                                                        return connection
+                                                end
+
+                                                -- игрушка должна быть невидимой, как и раньше в LazyHub
+                                                local function gucciHideDescendant(descendant)
+                                                        if descendant:IsA("BasePart") then
+                                                                descendant.Transparency = 1
+                                                                descendant.CanCollide = false
+                                                        elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+                                                                descendant.Transparency = 1
+                                                        elseif descendant.Name == "ItemSpawnSound" then
+                                                                descendant:Destroy()
+                                                        end
+                                                end
+
+                                                local function gucciAdoptToy(state, model)
+                                                        state.Vehicle = model
+                                                        state.Seat = gucciToySeat(model)
+                                                        state.Reserved = State.ToyAuraReserved[model]
+                                                        State.ToyAuraReserved[model] = true
+
+                                                        for _, descendant in ipairs(model:GetDescendants()) do
+                                                                gucciHideDescendant(descendant)
+                                                        end
+
+                                                        state.InvConn = model.DescendantAdded:Connect(gucciHideDescendant)
+                                                end
+
+                                                local function gucciReleaseToy(state)
+                                                        local model = state.Vehicle
+                                                        state.Vehicle = nil
+                                                        state.Seat = nil
+
+                                                        if state.InvConn then
+                                                                state.InvConn:Disconnect()
+                                                                state.InvConn = nil
+                                                        end
+
+                                                        if model then
+                                                                State.ToyAuraReserved[model] = state.Reserved
+                                                        end
+
+                                                        state.Reserved = nil
+                                                end
+
+                                                -- синхронная очистка: выключение тоггла, выгрузка скрипта и перезапуск цикла
+                                                local function gucciCleanup()
+                                                        local state = Gucci
+
+                                                        if not state then
                                                                 return
                                                         end
 
-                                                        for _, item470 in Runtime.Connections, nil, nil do
-                                                                item470:Disconnect()
+                                                        Gucci = nil
+
+                                                        for _, connection in ipairs(state.Connections) do
+                                                                connection:Disconnect()
                                                         end
 
-                                                        table.clear(Runtime.Connections)
+                                                        table.clear(state.Connections)
 
-                                                        if Runtime.BP then
-                                                                Runtime.BP:Destroy()
-                                                                Runtime.BP = nil
+                                                        if state.SeatHook then
+                                                                state.SeatHook:Disconnect()
+                                                                state.SeatHook = nil
                                                         end
 
-                                                        local hum = Runtime.Hum
-                                                        local hrp = Runtime.HRP
+                                                        local humanoid = state.Hum
+                                                        local hrp = state.HRP
 
-                                                        if hum and hum.Parent then
-                                                                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, Runtime.Jumping)
+                                                        if humanoid and humanoid.Parent then
+                                                                -- вернуть персонажа туда, где он был до того, как движок посадил его в игрушку
+                                                                if humanoid.SeatPart and state.SafeCFrame and hrp and hrp.Parent then
+                                                                        hrp.CFrame = state.SafeCFrame
+                                                                        hrp.AssemblyLinearVelocity = state.SafeVelocity or Vector3.new(0, 0, 0)
+                                                                end
 
-                                                                if hum.SeatPart == Runtime.Seat or not hum.SeatPart then
-                                                                        hum.Sit = false
+                                                                -- встать со своего сиденья, но не трогать транспорт, в который сел сам игрок
+                                                                if not humanoid.SeatPart or humanoid.SeatPart == state.Seat then
+                                                                        humanoid.Sit = false
                                                                 end
                                                         end
 
-                                                        if Runtime.Ragdoll and hrp and hrp.Parent then
-                                                                Remotes.RagdollRemote:FireServer(hrp, 0.15)
-                                                        end
+                                                        if state.Type == "Train" then
+                                                                local seat = state.Seat
 
-                                                        local item471 = Runtime
-                                                        local ragdoll = Runtime
-                                                        Runtime.Hum = nil
-                                                        item471.HRP = nil
-                                                        ragdoll.Ragdoll = nil
-                                                end
-
-                                                local function warnHelper38()
-                                                        if not Runtime then
-                                                                return
-                                                        end
-                                                        warnHelper37()
-
-                                                        if Runtime.InvConn then
-                                                                Runtime.InvConn:Disconnect()
-                                                        end
-
-                                                        local vehicle = Runtime.Vehicle
-                                                        local seat = Runtime.Seat
-
-                                                        if vehicle then
-                                                                State.ToyAuraReserved[vehicle] = Runtime.Reserved
-
-                                                                if Runtime.Type == "Train" then
-                                                                        if seat and seat.Parent then
-                                                                                seat.Transparency = Runtime.Transparency
-                                                                                seat.CanCollide = Runtime.CanCollide
-                                                                        end
-                                                                else
-                                                                        Hub.DestroyToy(vehicle)
+                                                                if seat and seat.Parent then
+                                                                        seat.Transparency = state.SeatTransparency
                                                                 end
                                                         end
 
-                                                        Runtime = nil
+                                                        local model = state.Vehicle
+                                                        gucciReleaseToy(state)
+
+                                                        if state.Type ~= "Train" then
+                                                                gucciDestroyToy(model)
+                                                        end
                                                 end
 
-                                                local function miscHelper180()
-                                                        local character = localPlayer.Character
-                                                        local miscVar1025 = 0
-                                                        local miscVar1026 = nil
-                                                        local childAdded2, parent78, findFirstChild22, gucciType, ragdolled, object, vehicle2, seat
-
-                                                        while Config.GucciAntiGrab do
-                                                                local exitTo = nil
-                                                                local vehicle, root, miscVar1015, miscHelper178, miscFlag2, now3, cFrame2, miscVar1019, connection, startTime15, miscVar1016, now4, miscVar1017, parent2, miscVar1020, bodyPosition, random, parent3, seatPart, miscVar1018, occupant, playerFromCharacter
-
-                                                                while true do
-                                                                        task.wait()
-                                                                        childAdded2, parent78, findFirstChild22 = Hub.Char()
-                                                                        gucciType = Options.GucciType
-
-                                                                        if childAdded2 ~= character then
-                                                                                character = childAdded2
-                                                                                miscVar1025 = os.clock() + 1
-                                                                        end
-
-                                                                        if Runtime and (Runtime.Type ~= gucciType or not Runtime.Vehicle.Parent or not Runtime.Seat.Parent or Runtime.Char ~= childAdded2) then
-                                                                                warnHelper38()
-                                                                        end
-
-                                                                        if Config.GucciAntiGrab then
-                                                                                ragdolled = findFirstChild22 and findFirstChild22:FindFirstChild("Ragdolled")
-
-                                                                                if not (parent78 and findFirstChild22 and findFirstChild22.Health > 0 and ragdolled) or isHeld.Value or ragdolled.Value then
-                                                                                        exitTo = 1
-                                                                                        break
-                                                                                elseif not Runtime then
-                                                                                        local seat2, miscVar1005, miscVar1006, miscVar1003, miscVar1004, parent4, parent5, descendantAddedHandler4
-
-                                                                                        if gucciType == "Train" then
-                                                                                                object = train:FindFirstChild("Object")
-                                                                                                object = object and object:FindFirstChild("ObjectModel")
-                                                                                                seat2 = object and object:FindFirstChildWhichIsA("Seat")
-
-                                                                                                if not seat2 then
-                                                                                                        exitTo = 25
-                                                                                                        break
-                                                                                                else
-                                                                                                        miscVar1005 = State.ToyAuraReserved[object]
-                                                                                                        miscVar1006 = nil
-                                                                                                        miscVar1003 = not Config.GucciAntiGrab or Options.GucciType ~= gucciType or localPlayer.Character ~= childAdded2
-
-                                                                                                        if miscVar1003 then
-                                                                                                                miscVar1004 = miscVar1003
-                                                                                                        else
-                                                                                                                parent4 = object and object.Parent
-                                                                                                                parent5 = parent4 and seat2 and seat2.Parent
-                                                                                                                miscVar1004 = not parent5
-                                                                                                        end
-
-                                                                                                        if miscVar1004 then
-                                                                                                                exitTo = 26
-                                                                                                                break
-                                                                                                        else
-                                                                                                                Runtime = {
-                                                                                                                        Vehicle = object,
-                                                                                                                        Seat = seat2,
-                                                                                                                        Root = miscVar1006,
-                                                                                                                        Char = childAdded2,
-                                                                                                                        Type = gucciType,
-                                                                                                                        Reserved = miscVar1005,
-                                                                                                                        Connections = {},
-                                                                                                                        Transparency = seat2.Transparency,
-                                                                                                                        CanCollide = seat2.CanCollide,
-                                                                                                                }
-
-                                                                                                                State.ToyAuraReserved[object] = true
-                                                                                                                miscVar1026 = nil
-
-                                                                                                                if gucciType == "Train" then
-                                                                                                                        vehicle2 = Runtime
-                                                                                                                        vehicle = vehicle2.Vehicle
-                                                                                                                        seat = vehicle2.Seat
-                                                                                                                        root = vehicle2.Root
-                                                                                                                        miscVar1015 = seat.Occupant and seat.Occupant ~= findFirstChild22
-
-                                                                                                                        if miscVar1015 then
-                                                                                                                                exitTo = 32
-                                                                                                                                break
-                                                                                                                        else
-                                                                                                                                miscHelper178 = function()
-                                                                                                                                        local parent68 = Runtime == vehicle2 and Config.GucciAntiGrab and Options.GucciType == gucciType and localPlayer.Character == childAdded2 and vehicle.Parent and seat.Parent and parent78.Parent and findFirstChild22.Parent and findFirstChild22.Health > 0 and not isHeld.Value and not ragdolled.Value
-
-                                                                                                                                        if parent68 then
-                                                                                                                                                parent68 = not (seat.Occupant and seat.Occupant ~= findFirstChild22)
-                                                                                                                                        end
-
-                                                                                                                                        return parent68
-                                                                                                                                end
-
-                                                                                                                                vehicle2.Hum = findFirstChild22
-                                                                                                                                vehicle2.HRP = parent78
-                                                                                                                                vehicle2.Jumping = findFirstChild22:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-                                                                                                                                seat.Transparency = 1
-                                                                                                                                seat.CanCollide = false
-                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                miscFlag2 = false
-
-                                                                                                                                table.insert(vehicle2.Connections, seat.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child.Name == "SeatWeld" then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                                miscFlag2 = true
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                table.insert(vehicle2.Connections, childAdded2.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child:IsA("LocalScript") and child.Name:lower():find("control") then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                now3 = os.clock()
-                                                                                                                                cFrame2 = parent78.CFrame
-                                                                                                                                miscVar1019 = nil
-                                                                                                                                vehicle2.Ragdoll = true
-                                                                                                                                connection = nil
-
-                                                                                                                                connection = RunService.Heartbeat:Connect(function()
-                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        elseif miscVar1019 and os.clock() >= miscVar1019 then
-                                                                                                                                                vehicle2.Ragdoll = false
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0.15)
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        else
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                        end
-                                                                                                                                end)
-
-                                                                                                                                table.insert(vehicle2.Connections, connection)
-                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                task.wait()
-
-                                                                                                                                if not miscHelper178() then
-                                                                                                                                        exitTo = 33
-                                                                                                                                        break
-                                                                                                                                else
-                                                                                                                                        seat:Sit(findFirstChild22)
-
-                                                                                                                                        while true do
-                                                                                                                                                task.wait()
-
-                                                                                                                                                if not miscHelper178() then
-                                                                                                                                                        break
-                                                                                                                                                else
-                                                                                                                                                        startTime15 = miscFlag2 or os.clock() - now3 > 0.75
-                                                                                                                                                        if not startTime15 then
-                                                                                                                                                                continue
-                                                                                                                                                        end
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-
-                                                                                                                                        miscVar1016 = not miscHelper178() or not miscFlag2
-
-                                                                                                                                        if miscVar1016 then
-                                                                                                                                                exitTo = 34
-                                                                                                                                                break
-                                                                                                                                        else
-                                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                                now4 = os.clock()
-                                                                                                                                                miscVar1019 = now4 + 0.15
-
-                                                                                                                                                if now4 < miscVar1025 then
-                                                                                                                                                        Hub.Teleport(parent78, cFrame2)
-                                                                                                                                                end
-
-                                                                                                                                                miscVar1017 = gucciType ~= "Train" and root
-                                                                                                                                                parent2 = miscVar1017 and root.Parent
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        miscVar1020 = root:IsDescendantOf(workspace.PlotItems)
-                                                                                                                                                        parent2 = miscVar1020 or Hub.IsNetworkOwner(root) or Hub.SNO(root)
-                                                                                                                                                end
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                                exitTo = 36
-                                                                                                                                                                break
-                                                                                                                                                        else
-                                                                                                                                                                bodyPosition = Instance.new("BodyPosition")
-                                                                                                                                                                bodyPosition.Name = "GucciBP"
-                                                                                                                                                                bodyPosition.D = 200
-                                                                                                                                                                bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                                                                random = math.random
-                                                                                                                                                                bodyPosition.Position = Vector3.new(math.random(-100000, 100000), 100000, random(-100000, 100000))
-                                                                                                                                                                vehicle2.BP = bodyPosition
-                                                                                                                                                                vehicle.Name = "GucciRSC"
-                                                                                                                                                                bodyPosition.Parent = root
-                                                                                                                                                                findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                                                                while miscHelper178() do
-                                                                                                                                                                        task.wait()
-                                                                                                                                                                end
-
-                                                                                                                                                                parent3 = findFirstChild22.Parent
-                                                                                                                                                                seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                                                                miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                                                                if miscVar1018 then
-                                                                                                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                                                                end
-
-                                                                                                                                                                if Runtime == vehicle2 then
-                                                                                                                                                                        occupant = seat.Occupant
-                                                                                                                                                                        playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                                                                        end
-
-                                                                                                                                                                        warnHelper37()
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                warnHelper38()
-                                                                                                                                                                        end
-                                                                                                                                                                end
-
-                                                                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                                                                                if Config.GucciAntiGrab then
-                                                                                                                                                                        continue
-                                                                                                                                                                end
-                                                                                                                                                        end
-                                                                                                                                                else
-                                                                                                                                                        exitTo = 35
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-                                                                                                                                end
-                                                                                                                        end
-                                                                                                                else
-                                                                                                                        descendantAddedHandler4 = function(descendant)
-                                                                                                                                if descendant:IsA("BasePart") then
-                                                                                                                                        descendant.Transparency = 1
-                                                                                                                                        descendant.CanCollide = false
-                                                                                                                                elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
-                                                                                                                                        descendant.Transparency = 1
-                                                                                                                                elseif descendant.Name == "ItemSpawnSound" then
-                                                                                                                                        descendant:Destroy()
-                                                                                                                                end
-                                                                                                                        end
-
-                                                                                                                        for _, child38 in object:GetDescendants() do
-                                                                                                                                descendantAddedHandler4(child38)
-                                                                                                                        end
-
-                                                                                                                        Runtime.InvConn = object.DescendantAdded:Connect(descendantAddedHandler4)
-                                                                                                                        miscVar1026 = nil
-                                                                                                                        vehicle2 = Runtime
-                                                                                                                        vehicle = vehicle2.Vehicle
-                                                                                                                        seat = vehicle2.Seat
-                                                                                                                        root = vehicle2.Root
-                                                                                                                        miscVar1015 = seat.Occupant and seat.Occupant ~= findFirstChild22
-
-                                                                                                                        if miscVar1015 then
-                                                                                                                                exitTo = 27
-                                                                                                                                break
-                                                                                                                        else
-                                                                                                                                miscHelper178 = function()
-                                                                                                                                        local parent66 = Runtime == vehicle2 and Config.GucciAntiGrab and Options.GucciType == gucciType and localPlayer.Character == childAdded2 and vehicle.Parent and seat.Parent and parent78.Parent and findFirstChild22.Parent and findFirstChild22.Health > 0 and not isHeld.Value and not ragdolled.Value
-
-                                                                                                                                        if parent66 then
-                                                                                                                                                parent66 = not (seat.Occupant and seat.Occupant ~= findFirstChild22)
-                                                                                                                                        end
-
-                                                                                                                                        return parent66
-                                                                                                                                end
-
-                                                                                                                                vehicle2.Hum = findFirstChild22
-                                                                                                                                vehicle2.HRP = parent78
-                                                                                                                                vehicle2.Jumping = findFirstChild22:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-                                                                                                                                seat.Transparency = 1
-                                                                                                                                seat.CanCollide = false
-                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                miscFlag2 = false
-
-                                                                                                                                table.insert(vehicle2.Connections, seat.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child.Name == "SeatWeld" then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                                miscFlag2 = true
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                table.insert(vehicle2.Connections, childAdded2.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child:IsA("LocalScript") and child.Name:lower():find("control") then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                now3 = os.clock()
-                                                                                                                                cFrame2 = parent78.CFrame
-                                                                                                                                miscVar1019 = nil
-                                                                                                                                vehicle2.Ragdoll = true
-                                                                                                                                connection = nil
-
-                                                                                                                                connection = RunService.Heartbeat:Connect(function()
-                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        elseif miscVar1019 and os.clock() >= miscVar1019 then
-                                                                                                                                                vehicle2.Ragdoll = false
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0.15)
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        else
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                        end
-                                                                                                                                end)
-
-                                                                                                                                table.insert(vehicle2.Connections, connection)
-                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                task.wait()
-
-                                                                                                                                if not miscHelper178() then
-                                                                                                                                        exitTo = 28
-                                                                                                                                        break
-                                                                                                                                else
-                                                                                                                                        seat:Sit(findFirstChild22)
-
-                                                                                                                                        while true do
-                                                                                                                                                task.wait()
-
-                                                                                                                                                if not miscHelper178() then
-                                                                                                                                                        break
-                                                                                                                                                else
-                                                                                                                                                        startTime15 = miscFlag2 or os.clock() - now3 > 0.75
-                                                                                                                                                        if not startTime15 then
-                                                                                                                                                                continue
-                                                                                                                                                        end
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-
-                                                                                                                                        miscVar1016 = not miscHelper178() or not miscFlag2
-
-                                                                                                                                        if miscVar1016 then
-                                                                                                                                                exitTo = 29
-                                                                                                                                                break
-                                                                                                                                        else
-                                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                                now4 = os.clock()
-                                                                                                                                                miscVar1019 = now4 + 0.15
-
-                                                                                                                                                if now4 < miscVar1025 then
-                                                                                                                                                        Hub.Teleport(parent78, cFrame2)
-                                                                                                                                                end
-
-                                                                                                                                                miscVar1017 = gucciType ~= "Train" and root
-                                                                                                                                                parent2 = miscVar1017 and root.Parent
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        miscVar1020 = root:IsDescendantOf(workspace.PlotItems)
-                                                                                                                                                        parent2 = miscVar1020 or Hub.IsNetworkOwner(root) or Hub.SNO(root)
-                                                                                                                                                end
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                                exitTo = 31
-                                                                                                                                                                break
-                                                                                                                                                        else
-                                                                                                                                                                bodyPosition = Instance.new("BodyPosition")
-                                                                                                                                                                bodyPosition.Name = "GucciBP"
-                                                                                                                                                                bodyPosition.D = 200
-                                                                                                                                                                bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                                                                random = math.random
-                                                                                                                                                                bodyPosition.Position = Vector3.new(math.random(-100000, 100000), 100000, random(-100000, 100000))
-                                                                                                                                                                vehicle2.BP = bodyPosition
-                                                                                                                                                                vehicle.Name = "GucciRSC"
-                                                                                                                                                                bodyPosition.Parent = root
-                                                                                                                                                                findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                                                                while miscHelper178() do
-                                                                                                                                                                        task.wait()
-                                                                                                                                                                end
-
-                                                                                                                                                                parent3 = findFirstChild22.Parent
-                                                                                                                                                                seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                                                                miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                                                                if miscVar1018 then
-                                                                                                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                                                                end
-
-                                                                                                                                                                if Runtime == vehicle2 then
-                                                                                                                                                                        occupant = seat.Occupant
-                                                                                                                                                                        playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                                                                        end
-
-                                                                                                                                                                        warnHelper37()
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                warnHelper38()
-                                                                                                                                                                        end
-                                                                                                                                                                end
-
-                                                                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                                                                                if Config.GucciAntiGrab then
-                                                                                                                                                                        continue
-                                                                                                                                                                end
-                                                                                                                                                        end
-                                                                                                                                                else
-                                                                                                                                                        exitTo = 30
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-                                                                                                                                end
-                                                                                                                        end
-                                                                                                                end
-                                                                                                        end
-                                                                                                end
-                                                                                        else
-                                                                                                object = Hub.SpawnToy(gucciType, CFrame.new(100000, 500000, 0), 2, true)
-                                                                                                seat2 = object and object:WaitForChild("VehicleSeat", 1.25)
-                                                                                                miscVar1005 = nil
-
-                                                                                                if seat2 then
-                                                                                                        miscVar1006 = Hub.FindNicePart(object)
-                                                                                                        miscVar1005 = nil
-                                                                                                        miscVar1003 = not Config.GucciAntiGrab or Options.GucciType ~= gucciType or localPlayer.Character ~= childAdded2
-
-                                                                                                        if miscVar1003 then
-                                                                                                                miscVar1004 = miscVar1003
-                                                                                                        else
-                                                                                                                parent4 = object and object.Parent
-                                                                                                                parent5 = parent4 and seat2 and seat2.Parent
-                                                                                                                miscVar1004 = not parent5
-                                                                                                        end
-
-                                                                                                        if miscVar1004 then
-                                                                                                                exitTo = 14
-                                                                                                                break
-                                                                                                        else
-                                                                                                                Runtime = {
-                                                                                                                        Vehicle = object,
-                                                                                                                        Seat = seat2,
-                                                                                                                        Root = miscVar1006,
-                                                                                                                        Char = childAdded2,
-                                                                                                                        Type = gucciType,
-                                                                                                                        Reserved = miscVar1005,
-                                                                                                                        Connections = {},
-                                                                                                                        Transparency = seat2.Transparency,
-                                                                                                                        CanCollide = seat2.CanCollide,
-                                                                                                                }
-
-                                                                                                                State.ToyAuraReserved[object] = true
-                                                                                                                miscVar1026 = nil
-
-                                                                                                                if gucciType == "Train" then
-                                                                                                                        vehicle2 = Runtime
-                                                                                                                        vehicle = vehicle2.Vehicle
-                                                                                                                        seat = vehicle2.Seat
-                                                                                                                        root = vehicle2.Root
-                                                                                                                        miscVar1015 = seat.Occupant and seat.Occupant ~= findFirstChild22
-
-                                                                                                                        if miscVar1015 then
-                                                                                                                                exitTo = 20
-                                                                                                                                break
-                                                                                                                        else
-                                                                                                                                miscHelper178 = function()
-                                                                                                                                        local parent61 = Runtime == vehicle2 and Config.GucciAntiGrab and Options.GucciType == gucciType and localPlayer.Character == childAdded2 and vehicle.Parent and seat.Parent and parent78.Parent and findFirstChild22.Parent and findFirstChild22.Health > 0 and not isHeld.Value and not ragdolled.Value
-
-                                                                                                                                        if parent61 then
-                                                                                                                                                parent61 = not (seat.Occupant and seat.Occupant ~= findFirstChild22)
-                                                                                                                                        end
-
-                                                                                                                                        return parent61
-                                                                                                                                end
-
-                                                                                                                                vehicle2.Hum = findFirstChild22
-                                                                                                                                vehicle2.HRP = parent78
-                                                                                                                                vehicle2.Jumping = findFirstChild22:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-                                                                                                                                seat.Transparency = 1
-                                                                                                                                seat.CanCollide = false
-                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                miscFlag2 = false
-
-                                                                                                                                table.insert(vehicle2.Connections, seat.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child.Name == "SeatWeld" then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                                miscFlag2 = true
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                table.insert(vehicle2.Connections, childAdded2.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child:IsA("LocalScript") and child.Name:lower():find("control") then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                now3 = os.clock()
-                                                                                                                                cFrame2 = parent78.CFrame
-                                                                                                                                miscVar1019 = nil
-                                                                                                                                vehicle2.Ragdoll = true
-                                                                                                                                connection = nil
-
-                                                                                                                                connection = RunService.Heartbeat:Connect(function()
-                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        elseif miscVar1019 and os.clock() >= miscVar1019 then
-                                                                                                                                                vehicle2.Ragdoll = false
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0.15)
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        else
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                        end
-                                                                                                                                end)
-
-                                                                                                                                table.insert(vehicle2.Connections, connection)
-                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                task.wait()
-
-                                                                                                                                if not miscHelper178() then
-                                                                                                                                        exitTo = 21
-                                                                                                                                        break
-                                                                                                                                else
-                                                                                                                                        seat:Sit(findFirstChild22)
-
-                                                                                                                                        while true do
-                                                                                                                                                task.wait()
-
-                                                                                                                                                if not miscHelper178() then
-                                                                                                                                                        break
-                                                                                                                                                else
-                                                                                                                                                        startTime15 = miscFlag2 or os.clock() - now3 > 0.75
-                                                                                                                                                        if not startTime15 then
-                                                                                                                                                                continue
-                                                                                                                                                        end
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-
-                                                                                                                                        miscVar1016 = not miscHelper178() or not miscFlag2
-
-                                                                                                                                        if miscVar1016 then
-                                                                                                                                                exitTo = 22
-                                                                                                                                                break
-                                                                                                                                        else
-                                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                                now4 = os.clock()
-                                                                                                                                                miscVar1019 = now4 + 0.15
-
-                                                                                                                                                if now4 < miscVar1025 then
-                                                                                                                                                        Hub.Teleport(parent78, cFrame2)
-                                                                                                                                                end
-
-                                                                                                                                                miscVar1017 = gucciType ~= "Train" and root
-                                                                                                                                                parent2 = miscVar1017 and root.Parent
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        miscVar1020 = root:IsDescendantOf(workspace.PlotItems)
-                                                                                                                                                        parent2 = miscVar1020 or Hub.IsNetworkOwner(root) or Hub.SNO(root)
-                                                                                                                                                end
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                                exitTo = 24
-                                                                                                                                                                break
-                                                                                                                                                        else
-                                                                                                                                                                bodyPosition = Instance.new("BodyPosition")
-                                                                                                                                                                bodyPosition.Name = "GucciBP"
-                                                                                                                                                                bodyPosition.D = 200
-                                                                                                                                                                bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                                                                random = math.random
-                                                                                                                                                                bodyPosition.Position = Vector3.new(math.random(-100000, 100000), 100000, random(-100000, 100000))
-                                                                                                                                                                vehicle2.BP = bodyPosition
-                                                                                                                                                                vehicle.Name = "GucciRSC"
-                                                                                                                                                                bodyPosition.Parent = root
-                                                                                                                                                                findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                                                                while miscHelper178() do
-                                                                                                                                                                        task.wait()
-                                                                                                                                                                end
-
-                                                                                                                                                                parent3 = findFirstChild22.Parent
-                                                                                                                                                                seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                                                                miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                                                                if miscVar1018 then
-                                                                                                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                                                                end
-
-                                                                                                                                                                if Runtime == vehicle2 then
-                                                                                                                                                                        occupant = seat.Occupant
-                                                                                                                                                                        playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                                                                        end
-
-                                                                                                                                                                        warnHelper37()
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                warnHelper38()
-                                                                                                                                                                        end
-                                                                                                                                                                end
-
-                                                                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                                                                                if Config.GucciAntiGrab then
-                                                                                                                                                                        continue
-                                                                                                                                                                end
-                                                                                                                                                        end
-                                                                                                                                                else
-                                                                                                                                                        exitTo = 23
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-                                                                                                                                end
-                                                                                                                        end
-                                                                                                                else
-                                                                                                                        descendantAddedHandler4 = function(obj49)
-                                                                                                                                if obj49:IsA("BasePart") then
-                                                                                                                                        obj49.Transparency = 1
-                                                                                                                                        obj49.CanCollide = false
-                                                                                                                                elseif obj49:IsA("Decal") or obj49:IsA("Texture") then
-                                                                                                                                        obj49.Transparency = 1
-                                                                                                                                elseif obj49.Name == "ItemSpawnSound" then
-                                                                                                                                        obj49:Destroy()
-                                                                                                                                end
-                                                                                                                        end
-
-                                                                                                                        for _, child37 in object:GetDescendants() do
-                                                                                                                                descendantAddedHandler4(child37)
-                                                                                                                        end
-
-                                                                                                                        Runtime.InvConn = object.DescendantAdded:Connect(descendantAddedHandler4)
-                                                                                                                        miscVar1026 = nil
-                                                                                                                        vehicle2 = Runtime
-                                                                                                                        vehicle = vehicle2.Vehicle
-                                                                                                                        seat = vehicle2.Seat
-                                                                                                                        root = vehicle2.Root
-                                                                                                                        miscVar1015 = seat.Occupant and seat.Occupant ~= findFirstChild22
-
-                                                                                                                        if miscVar1015 then
-                                                                                                                                exitTo = 15
-                                                                                                                                break
-                                                                                                                        else
-                                                                                                                                miscHelper178 = function()
-                                                                                                                                        local parent59 = Runtime == vehicle2 and Config.GucciAntiGrab and Options.GucciType == gucciType and localPlayer.Character == childAdded2 and vehicle.Parent and seat.Parent and parent78.Parent and findFirstChild22.Parent and findFirstChild22.Health > 0 and not isHeld.Value and not ragdolled.Value
-
-                                                                                                                                        if parent59 then
-                                                                                                                                                parent59 = not (seat.Occupant and seat.Occupant ~= findFirstChild22)
-                                                                                                                                        end
-
-                                                                                                                                        return parent59
-                                                                                                                                end
-
-                                                                                                                                vehicle2.Hum = findFirstChild22
-                                                                                                                                vehicle2.HRP = parent78
-                                                                                                                                vehicle2.Jumping = findFirstChild22:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-                                                                                                                                seat.Transparency = 1
-                                                                                                                                seat.CanCollide = false
-                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                miscFlag2 = false
-
-                                                                                                                                table.insert(vehicle2.Connections, seat.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child.Name == "SeatWeld" then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                                miscFlag2 = true
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                table.insert(vehicle2.Connections, childAdded2.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child:IsA("LocalScript") and child.Name:lower():find("control") then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                now3 = os.clock()
-                                                                                                                                cFrame2 = parent78.CFrame
-                                                                                                                                miscVar1019 = nil
-                                                                                                                                vehicle2.Ragdoll = true
-                                                                                                                                connection = nil
-
-                                                                                                                                connection = RunService.Heartbeat:Connect(function()
-                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        elseif miscVar1019 and os.clock() >= miscVar1019 then
-                                                                                                                                                vehicle2.Ragdoll = false
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0.15)
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        else
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                        end
-                                                                                                                                end)
-
-                                                                                                                                table.insert(vehicle2.Connections, connection)
-                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                task.wait()
-
-                                                                                                                                if not miscHelper178() then
-                                                                                                                                        exitTo = 16
-                                                                                                                                        break
-                                                                                                                                else
-                                                                                                                                        seat:Sit(findFirstChild22)
-
-                                                                                                                                        while true do
-                                                                                                                                                task.wait()
-
-                                                                                                                                                if not miscHelper178() then
-                                                                                                                                                        break
-                                                                                                                                                else
-                                                                                                                                                        startTime15 = miscFlag2 or os.clock() - now3 > 0.75
-                                                                                                                                                        if not startTime15 then
-                                                                                                                                                                continue
-                                                                                                                                                        end
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-
-                                                                                                                                        miscVar1016 = not miscHelper178() or not miscFlag2
-
-                                                                                                                                        if miscVar1016 then
-                                                                                                                                                exitTo = 17
-                                                                                                                                                break
-                                                                                                                                        else
-                                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                                now4 = os.clock()
-                                                                                                                                                miscVar1019 = now4 + 0.15
-
-                                                                                                                                                if now4 < miscVar1025 then
-                                                                                                                                                        Hub.Teleport(parent78, cFrame2)
-                                                                                                                                                end
-
-                                                                                                                                                miscVar1017 = gucciType ~= "Train" and root
-                                                                                                                                                parent2 = miscVar1017 and root.Parent
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        miscVar1020 = root:IsDescendantOf(workspace.PlotItems)
-                                                                                                                                                        parent2 = miscVar1020 or Hub.IsNetworkOwner(root) or Hub.SNO(root)
-                                                                                                                                                end
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                                exitTo = 19
-                                                                                                                                                                break
-                                                                                                                                                        else
-                                                                                                                                                                bodyPosition = Instance.new("BodyPosition")
-                                                                                                                                                                bodyPosition.Name = "GucciBP"
-                                                                                                                                                                bodyPosition.D = 200
-                                                                                                                                                                bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                                                                random = math.random
-                                                                                                                                                                bodyPosition.Position = Vector3.new(math.random(-100000, 100000), 100000, random(-100000, 100000))
-                                                                                                                                                                vehicle2.BP = bodyPosition
-                                                                                                                                                                vehicle.Name = "GucciRSC"
-                                                                                                                                                                bodyPosition.Parent = root
-                                                                                                                                                                findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                                                                while miscHelper178() do
-                                                                                                                                                                        task.wait()
-                                                                                                                                                                end
-
-                                                                                                                                                                parent3 = findFirstChild22.Parent
-                                                                                                                                                                seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                                                                miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                                                                if miscVar1018 then
-                                                                                                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                                                                end
-
-                                                                                                                                                                if Runtime == vehicle2 then
-                                                                                                                                                                        occupant = seat.Occupant
-                                                                                                                                                                        playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                                                                        end
-
-                                                                                                                                                                        warnHelper37()
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                warnHelper38()
-                                                                                                                                                                        end
-                                                                                                                                                                end
-
-                                                                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                                                                                if Config.GucciAntiGrab then
-                                                                                                                                                                        continue
-                                                                                                                                                                end
-                                                                                                                                                        end
-                                                                                                                                                else
-                                                                                                                                                        exitTo = 18
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-                                                                                                                                end
-                                                                                                                        end
-                                                                                                                end
-                                                                                                        end
-                                                                                                else
-                                                                                                        miscVar1006 = seat2
-                                                                                                        miscVar1003 = not Config.GucciAntiGrab or Options.GucciType ~= gucciType or localPlayer.Character ~= childAdded2
-
-                                                                                                        if miscVar1003 then
-                                                                                                                miscVar1004 = miscVar1003
-                                                                                                        else
-                                                                                                                parent4 = object and object.Parent
-                                                                                                                parent5 = parent4 and seat2 and seat2.Parent
-                                                                                                                miscVar1004 = not parent5
-                                                                                                        end
-
-                                                                                                        if miscVar1004 then
-                                                                                                                exitTo = 3
-                                                                                                                break
-                                                                                                        else
-                                                                                                                Runtime = {
-                                                                                                                        Vehicle = object,
-                                                                                                                        Seat = seat2,
-                                                                                                                        Root = miscVar1006,
-                                                                                                                        Char = childAdded2,
-                                                                                                                        Type = gucciType,
-                                                                                                                        Reserved = miscVar1005,
-                                                                                                                        Connections = {},
-                                                                                                                        Transparency = seat2.Transparency,
-                                                                                                                        CanCollide = seat2.CanCollide,
-                                                                                                                }
-
-                                                                                                                State.ToyAuraReserved[object] = true
-                                                                                                                miscVar1026 = nil
-
-                                                                                                                if gucciType == "Train" then
-                                                                                                                        vehicle2 = Runtime
-                                                                                                                        vehicle = vehicle2.Vehicle
-                                                                                                                        seat = vehicle2.Seat
-                                                                                                                        root = vehicle2.Root
-                                                                                                                        miscVar1015 = seat.Occupant and seat.Occupant ~= findFirstChild22
-
-                                                                                                                        if miscVar1015 then
-                                                                                                                                exitTo = 9
-                                                                                                                                break
-                                                                                                                        else
-                                                                                                                                miscHelper178 = function()
-                                                                                                                                        local parent55 = Runtime == vehicle2 and Config.GucciAntiGrab and Options.GucciType == gucciType and localPlayer.Character == childAdded2 and vehicle.Parent and seat.Parent and parent78.Parent and findFirstChild22.Parent and findFirstChild22.Health > 0 and not isHeld.Value and not ragdolled.Value
-
-                                                                                                                                        if parent55 then
-                                                                                                                                                parent55 = not (seat.Occupant and seat.Occupant ~= findFirstChild22)
-                                                                                                                                        end
-
-                                                                                                                                        return parent55
-                                                                                                                                end
-
-                                                                                                                                vehicle2.Hum = findFirstChild22
-                                                                                                                                vehicle2.HRP = parent78
-                                                                                                                                vehicle2.Jumping = findFirstChild22:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-                                                                                                                                seat.Transparency = 1
-                                                                                                                                seat.CanCollide = false
-                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                miscFlag2 = false
-
-                                                                                                                                table.insert(vehicle2.Connections, seat.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child.Name == "SeatWeld" then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                                miscFlag2 = true
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                table.insert(vehicle2.Connections, childAdded2.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child:IsA("LocalScript") and child.Name:lower():find("control") then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                now3 = os.clock()
-                                                                                                                                cFrame2 = parent78.CFrame
-                                                                                                                                miscVar1019 = nil
-                                                                                                                                vehicle2.Ragdoll = true
-                                                                                                                                connection = nil
-
-                                                                                                                                connection = RunService.Heartbeat:Connect(function()
-                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        elseif miscVar1019 and os.clock() >= miscVar1019 then
-                                                                                                                                                vehicle2.Ragdoll = false
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0.15)
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        else
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                        end
-                                                                                                                                end)
-
-                                                                                                                                table.insert(vehicle2.Connections, connection)
-                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                task.wait()
-
-                                                                                                                                if not miscHelper178() then
-                                                                                                                                        exitTo = 10
-                                                                                                                                        break
-                                                                                                                                else
-                                                                                                                                        seat:Sit(findFirstChild22)
-
-                                                                                                                                        while true do
-                                                                                                                                                task.wait()
-
-                                                                                                                                                if not miscHelper178() then
-                                                                                                                                                        break
-                                                                                                                                                else
-                                                                                                                                                        startTime15 = miscFlag2 or os.clock() - now3 > 0.75
-                                                                                                                                                        if not startTime15 then
-                                                                                                                                                                continue
-                                                                                                                                                        end
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-
-                                                                                                                                        miscVar1016 = not miscHelper178() or not miscFlag2
-
-                                                                                                                                        if miscVar1016 then
-                                                                                                                                                exitTo = 11
-                                                                                                                                                break
-                                                                                                                                        else
-                                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                                now4 = os.clock()
-                                                                                                                                                miscVar1019 = now4 + 0.15
-
-                                                                                                                                                if now4 < miscVar1025 then
-                                                                                                                                                        Hub.Teleport(parent78, cFrame2)
-                                                                                                                                                end
-
-                                                                                                                                                miscVar1017 = gucciType ~= "Train" and root
-                                                                                                                                                parent2 = miscVar1017 and root.Parent
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        miscVar1020 = root:IsDescendantOf(workspace.PlotItems)
-                                                                                                                                                        parent2 = miscVar1020 or Hub.IsNetworkOwner(root) or Hub.SNO(root)
-                                                                                                                                                end
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                                exitTo = 13
-                                                                                                                                                                break
-                                                                                                                                                        else
-                                                                                                                                                                bodyPosition = Instance.new("BodyPosition")
-                                                                                                                                                                bodyPosition.Name = "GucciBP"
-                                                                                                                                                                bodyPosition.D = 200
-                                                                                                                                                                bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                                                                random = math.random
-                                                                                                                                                                bodyPosition.Position = Vector3.new(math.random(-100000, 100000), 100000, random(-100000, 100000))
-                                                                                                                                                                vehicle2.BP = bodyPosition
-                                                                                                                                                                vehicle.Name = "GucciRSC"
-                                                                                                                                                                bodyPosition.Parent = root
-                                                                                                                                                                findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                                                                while miscHelper178() do
-                                                                                                                                                                        task.wait()
-                                                                                                                                                                end
-
-                                                                                                                                                                parent3 = findFirstChild22.Parent
-                                                                                                                                                                seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                                                                miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                                                                if miscVar1018 then
-                                                                                                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                                                                end
-
-                                                                                                                                                                if Runtime == vehicle2 then
-                                                                                                                                                                        occupant = seat.Occupant
-                                                                                                                                                                        playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                                                                        end
-
-                                                                                                                                                                        warnHelper37()
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                warnHelper38()
-                                                                                                                                                                        end
-                                                                                                                                                                end
-
-                                                                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                                                                                if Config.GucciAntiGrab then
-                                                                                                                                                                        continue
-                                                                                                                                                                end
-                                                                                                                                                        end
-                                                                                                                                                else
-                                                                                                                                                        exitTo = 12
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-                                                                                                                                end
-                                                                                                                        end
-                                                                                                                else
-                                                                                                                        descendantAddedHandler4 = function(obj48)
-                                                                                                                                if obj48:IsA("BasePart") then
-                                                                                                                                        obj48.Transparency = 1
-                                                                                                                                        obj48.CanCollide = false
-                                                                                                                                elseif obj48:IsA("Decal") or obj48:IsA("Texture") then
-                                                                                                                                        obj48.Transparency = 1
-                                                                                                                                elseif obj48.Name == "ItemSpawnSound" then
-                                                                                                                                        obj48:Destroy()
-                                                                                                                                end
-                                                                                                                        end
-
-                                                                                                                        for _, child36 in object:GetDescendants() do
-                                                                                                                                descendantAddedHandler4(child36)
-                                                                                                                        end
-
-                                                                                                                        Runtime.InvConn = object.DescendantAdded:Connect(descendantAddedHandler4)
-                                                                                                                        miscVar1026 = nil
-                                                                                                                        vehicle2 = Runtime
-                                                                                                                        vehicle = vehicle2.Vehicle
-                                                                                                                        seat = vehicle2.Seat
-                                                                                                                        root = vehicle2.Root
-                                                                                                                        miscVar1015 = seat.Occupant and seat.Occupant ~= findFirstChild22
-
-                                                                                                                        if miscVar1015 then
-                                                                                                                                exitTo = 4
-                                                                                                                                break
-                                                                                                                        else
-                                                                                                                                miscHelper178 = function()
-                                                                                                                                        local parent53 = Runtime == vehicle2 and Config.GucciAntiGrab and Options.GucciType == gucciType and localPlayer.Character == childAdded2 and vehicle.Parent and seat.Parent and parent78.Parent and findFirstChild22.Parent and findFirstChild22.Health > 0 and not isHeld.Value and not ragdolled.Value
-
-                                                                                                                                        if parent53 then
-                                                                                                                                                parent53 = not (seat.Occupant and seat.Occupant ~= findFirstChild22)
-                                                                                                                                        end
-
-                                                                                                                                        return parent53
-                                                                                                                                end
-
-                                                                                                                                vehicle2.Hum = findFirstChild22
-                                                                                                                                vehicle2.HRP = parent78
-                                                                                                                                vehicle2.Jumping = findFirstChild22:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-                                                                                                                                seat.Transparency = 1
-                                                                                                                                seat.CanCollide = false
-                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                miscFlag2 = false
-
-                                                                                                                                table.insert(vehicle2.Connections, seat.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child.Name == "SeatWeld" then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                                miscFlag2 = true
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                table.insert(vehicle2.Connections, childAdded2.ChildAdded:Connect(function(child)
-                                                                                                                                        if Runtime == vehicle2 and child:IsA("LocalScript") and child.Name:lower():find("control") then
-                                                                                                                                                child.Enabled = false
-                                                                                                                                                child:Destroy()
-                                                                                                                                        end
-                                                                                                                                end))
-
-                                                                                                                                now3 = os.clock()
-                                                                                                                                cFrame2 = parent78.CFrame
-                                                                                                                                miscVar1019 = nil
-                                                                                                                                vehicle2.Ragdoll = true
-                                                                                                                                connection = nil
-
-                                                                                                                                connection = RunService.Heartbeat:Connect(function()
-                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        elseif miscVar1019 and os.clock() >= miscVar1019 then
-                                                                                                                                                vehicle2.Ragdoll = false
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0.15)
-                                                                                                                                                connection:Disconnect()
-                                                                                                                                        else
-                                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                        end
-                                                                                                                                end)
-
-                                                                                                                                table.insert(vehicle2.Connections, connection)
-                                                                                                                                Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                                                task.wait()
-
-                                                                                                                                if not miscHelper178() then
-                                                                                                                                        exitTo = 5
-                                                                                                                                        break
-                                                                                                                                else
-                                                                                                                                        seat:Sit(findFirstChild22)
-
-                                                                                                                                        while true do
-                                                                                                                                                task.wait()
-
-                                                                                                                                                if not miscHelper178() then
-                                                                                                                                                        break
-                                                                                                                                                else
-                                                                                                                                                        startTime15 = miscFlag2 or os.clock() - now3 > 0.75
-                                                                                                                                                        if not startTime15 then
-                                                                                                                                                                continue
-                                                                                                                                                        end
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-
-                                                                                                                                        miscVar1016 = not miscHelper178() or not miscFlag2
-
-                                                                                                                                        if miscVar1016 then
-                                                                                                                                                exitTo = 6
-                                                                                                                                                break
-                                                                                                                                        else
-                                                                                                                                                findFirstChild22.Sit = false
-                                                                                                                                                now4 = os.clock()
-                                                                                                                                                miscVar1019 = now4 + 0.15
-
-                                                                                                                                                if now4 < miscVar1025 then
-                                                                                                                                                        Hub.Teleport(parent78, cFrame2)
-                                                                                                                                                end
-
-                                                                                                                                                miscVar1017 = gucciType ~= "Train" and root
-                                                                                                                                                parent2 = miscVar1017 and root.Parent
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        miscVar1020 = root:IsDescendantOf(workspace.PlotItems)
-                                                                                                                                                        parent2 = miscVar1020 or Hub.IsNetworkOwner(root) or Hub.SNO(root)
-                                                                                                                                                end
-
-                                                                                                                                                if parent2 then
-                                                                                                                                                        if not miscHelper178() then
-                                                                                                                                                                exitTo = 8
-                                                                                                                                                                break
-                                                                                                                                                        else
-                                                                                                                                                                bodyPosition = Instance.new("BodyPosition")
-                                                                                                                                                                bodyPosition.Name = "GucciBP"
-                                                                                                                                                                bodyPosition.D = 200
-                                                                                                                                                                bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                                                                random = math.random
-                                                                                                                                                                bodyPosition.Position = Vector3.new(math.random(-100000, 100000), 100000, random(-100000, 100000))
-                                                                                                                                                                vehicle2.BP = bodyPosition
-                                                                                                                                                                vehicle.Name = "GucciRSC"
-                                                                                                                                                                bodyPosition.Parent = root
-                                                                                                                                                                findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                                                                while miscHelper178() do
-                                                                                                                                                                        task.wait()
-                                                                                                                                                                end
-
-                                                                                                                                                                parent3 = findFirstChild22.Parent
-                                                                                                                                                                seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                                                                miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                                                                if miscVar1018 then
-                                                                                                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                                                                end
-
-                                                                                                                                                                if Runtime == vehicle2 then
-                                                                                                                                                                        occupant = seat.Occupant
-                                                                                                                                                                        playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                                                                        end
-
-                                                                                                                                                                        warnHelper37()
-
-                                                                                                                                                                        if playerFromCharacter then
-                                                                                                                                                                                warnHelper38()
-                                                                                                                                                                        end
-                                                                                                                                                                end
-
-                                                                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                                                                                if Config.GucciAntiGrab then
-                                                                                                                                                                        continue
-                                                                                                                                                                end
-                                                                                                                                                        end
-                                                                                                                                                else
-                                                                                                                                                        exitTo = 7
-                                                                                                                                                        break
-                                                                                                                                                end
-                                                                                                                                        end
-                                                                                                                                end
-                                                                                                                        end
-                                                                                                                end
-                                                                                                        end
-                                                                                                end
-                                                                                        end
-                                                                                else
-                                                                                        exitTo = 2
-                                                                                        break
+                                                -- перенос gucciblob: цикл состояний, который сам чинит игрушку
+                                                local function gucciToyLoop(state)
+                                                        local gucciType = state.Type
+                                                        local toy, hrp, humanoid, seat, root = nil, nil, nil, nil, nil
+                                                        local seated = false
+                                                        local toyAge = setmetatable({}, { __mode = "k" })
+                                                        local lastTick = os.clock()
+                                                        local errorStreak = 0
+                                                        local yields = 0
+
+                                                        local function gucciAlive()
+                                                                return Gucci == state
+                                                        end
+
+                                                        local function gucciWait(seconds)
+                                                                yields = yields + 1
+                                                                return task.wait(seconds)
+                                                        end
+
+                                                        local function gucciResetToy()
+                                                                toy = nil
+                                                                seated = false
+                                                                toyAge = setmetatable({}, { __mode = "k" })
+                                                        end
+
+                                                        -- "diddle": каждый раз, когда движок сажает персонажа или снимает с сиденья,
+                                                        -- вернуть его на сохранённое место и снова повесить обработчик
+                                                        local function gucciRestoreSeat()
+                                                                if toy then
+                                                                        for _, part in pairs(toy:GetChildren()) do
+                                                                                if part:IsA("BasePart") then
+                                                                                        part.CanCollide = false
                                                                                 end
                                                                         end
-
-                                                                        break
                                                                 end
 
-                                                                if exitTo == 1 then
-                                                                        continue
+                                                                if state.SafeCFrame and hrp and hrp.Parent then
+                                                                        hrp.CFrame = state.SafeCFrame
+                                                                        hrp.AssemblyLinearVelocity = state.SafeVelocity or Vector3.new(0, 0, 0)
+                                                                end
+
+                                                                if gucciAlive() and humanoid and humanoid.Parent then
+                                                                        state.SeatHook = gucciHookSeatPart(humanoid, gucciRestoreSeat)
+                                                                end
+                                                        end
+
+                                                        local function gucciDropToy()
+                                                                if seated then
+                                                                        humanoid.Sit = true
+                                                                end
+
+                                                                seated = false
+
+                                                                if (toyAge[toy] or 0) >= 1 then
+                                                                        gucciDestroyToy(toy)
+
+                                                                        if gucciCanSpawnToy() then
+                                                                                gucciSpawnToy(gucciType, hrp)
+                                                                        end
+                                                                end
+                                                        end
+
+                                                        local function gucciIteration()
+                                                                local character = localPlayer.Character
+
+                                                                if not character or character ~= state.Char then
+                                                                        return
+                                                                end
+
+                                                                humanoid = character:FindFirstChild("Humanoid")
+                                                                hrp = character:FindFirstChild("HumanoidRootPart")
+
+                                                                if not (humanoid and hrp and humanoid.Health > 0) then
+                                                                        gucciWait()
+                                                                        return
+                                                                end
+
+                                                                state.Hum = humanoid
+                                                                state.HRP = hrp
+
+                                                                local now = os.clock()
+                                                                local dt = now - lastTick
+                                                                lastTick = now
+
+                                                                -- 1) в игрушку сел чужой: выбросить её и заспавнить новую
+                                                                seat = toy and gucciToySeat(toy)
+                                                                local occupant = seat and seat.Occupant
+
+                                                                if occupant and occupant ~= humanoid then
+                                                                        local otherPlayer = occupant.Parent and Players:GetPlayerFromCharacter(occupant.Parent)
+                                                                        resolveAssetInputVar82((otherPlayer and otherPlayer.DisplayName or "Someone") .. " sat on your gucci!")
+                                                                        gucciDestroyToy(toy)
+                                                                        gucciResetToy()
+                                                                        gucciWait(0.1)
+
+                                                                        if not gucciAlive() then
+                                                                                return
+                                                                        end
+
+                                                                        if gucciCanSpawnToy() then
+                                                                                gucciSpawnToy(gucciType, hrp)
+                                                                        end
+
+                                                                        gucciWait()
+                                                                        return
+                                                                end
+
+                                                                -- 2) непригодную игрушку выбрасываем, когда ей исполнится секунда,
+                                                                --    иначе берём свою из папки по имени
+                                                                seat = toy and gucciToySeat(toy)
+                                                                local usable = toy and gucciToyRoot(toy) and seat and (not seat.Occupant or seat.Occupant ~= humanoid)
+
+                                                                if toy and toy.Parent and not (usable or (toyAge[toy] or 0) < 1) then
+                                                                        gucciDestroyToy(toy)
                                                                 else
-                                                                        local miscVar999, miscVar1000
+                                                                        local folder = gucciToyFolder()
+                                                                        toy = folder and folder:FindFirstChild(gucciType) or nil
+                                                                end
 
-                                                                        if exitTo == 2 then
-                                                                                vehicle2 = Runtime
-                                                                                vehicle = vehicle2.Vehicle
-                                                                                seat = vehicle2.Seat
-                                                                                root = vehicle2.Root
-                                                                                miscVar1015 = seat.Occupant and seat.Occupant ~= findFirstChild22
+                                                                if toy ~= state.Vehicle then
+                                                                        gucciReleaseToy(state)
 
-                                                                                if miscVar1015 then
-                                                                                        warnHelper38()
-                                                                                else
-                                                                                        miscHelper178 = function()
-                                                                                                local parent49 = Runtime == vehicle2 and Config.GucciAntiGrab and Options.GucciType == gucciType and localPlayer.Character == childAdded2 and vehicle.Parent and seat.Parent and parent78.Parent and findFirstChild22.Parent and findFirstChild22.Health > 0 and not isHeld.Value and not ragdolled.Value
+                                                                        if toy then
+                                                                                gucciAdoptToy(state, toy)
+                                                                        end
+                                                                end
 
-                                                                                                if parent49 then
-                                                                                                        parent49 = not (seat.Occupant and seat.Occupant ~= findFirstChild22)
-                                                                                                end
+                                                                -- 3) запомнить, где персонаж находится на самом деле, пока он никуда не сел
+                                                                if not state.SafeCFrame or not humanoid.SeatPart then
+                                                                        state.SafeCFrame = hrp.CFrame
+                                                                        state.SafeVelocity = hrp.AssemblyLinearVelocity
+                                                                end
 
-                                                                                                return parent49
-                                                                                        end
+                                                                -- 4) возвращать персонажа на место по событию SeatPart
+                                                                if state.HookedHumanoid ~= humanoid then
+                                                                        state.HookedHumanoid = humanoid
+                                                                        state.SeatHook = gucciHookSeatPart(humanoid, gucciRestoreSeat)
+                                                                end
 
-                                                                                        vehicle2.Hum = findFirstChild22
-                                                                                        vehicle2.HRP = parent78
-                                                                                        vehicle2.Jumping = findFirstChild22:GetStateEnabled(Enum.HumanoidStateType.Jumping)
-                                                                                        seat.Transparency = 1
-                                                                                        seat.CanCollide = false
-                                                                                        findFirstChild22.Sit = false
-                                                                                        miscFlag2 = false
+                                                                local tailWait = true
 
-                                                                                        table.insert(vehicle2.Connections, seat.ChildAdded:Connect(function(child)
-                                                                                                if Runtime == vehicle2 and child.Name == "SeatWeld" then
-                                                                                                        child.Enabled = false
-                                                                                                        child:Destroy()
-                                                                                                        miscFlag2 = true
-                                                                                                end
-                                                                                        end))
+                                                                if not toy then
+                                                                        -- сидеть пока не на чем: попросить игрушку
+                                                                        if seated then
+                                                                                seated = false
+                                                                                humanoid.Sit = true
+                                                                        end
 
-                                                                                        table.insert(vehicle2.Connections, childAdded2.ChildAdded:Connect(function(child)
-                                                                                                if Runtime == vehicle2 and child:IsA("LocalScript") and child.Name:lower():find("control") then
-                                                                                                        child.Enabled = false
-                                                                                                        child:Destroy()
-                                                                                                end
-                                                                                        end))
+                                                                        if gucciCanSpawnToy() then
+                                                                                gucciSpawnToy(gucciType, hrp)
+                                                                        end
+                                                                else
+                                                                        toyAge[toy] = (toyAge[toy] or 0) + dt
+                                                                        root = gucciToyRoot(toy)
+                                                                        seat = gucciToySeat(toy)
 
-                                                                                        now3 = os.clock()
-                                                                                        cFrame2 = parent78.CFrame
-                                                                                        miscVar1019 = nil
-                                                                                        vehicle2.Ragdoll = true
-                                                                                        connection = nil
-
-                                                                                        connection = RunService.Heartbeat:Connect(function()
-                                                                                                if not miscHelper178() then
-                                                                                                        connection:Disconnect()
-                                                                                                elseif miscVar1019 and os.clock() >= miscVar1019 then
-                                                                                                        vehicle2.Ragdoll = false
-                                                                                                        Remotes.RagdollRemote:FireServer(parent78, 0.15)
-                                                                                                        connection:Disconnect()
-                                                                                                else
-                                                                                                        Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                                end
-                                                                                        end)
-
-                                                                                        table.insert(vehicle2.Connections, connection)
-                                                                                        Remotes.RagdollRemote:FireServer(parent78, 0)
-                                                                                        task.wait()
-
-                                                                                        if not miscHelper178() then
-                                                                                                if Runtime == vehicle2 then
-                                                                                                        warnHelper37()
-                                                                                                end
-
-                                                                                                warnHelper36(findFirstChild22)
-                                                                                        else
-                                                                                                seat:Sit(findFirstChild22)
-
-                                                                                                while true do
-                                                                                                        task.wait()
-
-                                                                                                        if not miscHelper178() then
-                                                                                                                break
-                                                                                                        else
-                                                                                                                startTime15 = miscFlag2 or os.clock() - now3 > 0.75
-                                                                                                                if not startTime15 then
-                                                                                                                        continue
-                                                                                                                end
-                                                                                                                break
-                                                                                                        end
-                                                                                                end
-
-                                                                                                miscVar1016 = not miscHelper178() or not miscFlag2
-
-                                                                                                if miscVar1016 then
-                                                                                                        miscVar999 = findFirstChild22.Sit and seat.Occupant == findFirstChild22
-                                                                                                        miscVar1000 = not miscVar999
-
-                                                                                                        if Runtime == vehicle2 then
-                                                                                                                warnHelper38()
-                                                                                                        end
-
-                                                                                                        if miscVar1000 then
-                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                        end
-                                                                                                else
-                                                                                                        findFirstChild22.Sit = false
-                                                                                                        now4 = os.clock()
-                                                                                                        miscVar1019 = now4 + 0.15
-
-                                                                                                        if now4 < miscVar1025 then
-                                                                                                                Hub.Teleport(parent78, cFrame2)
-                                                                                                        end
-
-                                                                                                        miscVar1017 = gucciType ~= "Train" and root
-                                                                                                        parent2 = miscVar1017 and root.Parent
-
-                                                                                                        if parent2 then
-                                                                                                                miscVar1020 = root:IsDescendantOf(workspace.PlotItems)
-                                                                                                                parent2 = miscVar1020 or Hub.IsNetworkOwner(root) or Hub.SNO(root)
-                                                                                                        end
-
-                                                                                                        if parent2 then
-                                                                                                                if not miscHelper178() then
-                                                                                                                        if Runtime == vehicle2 then
-                                                                                                                                warnHelper38()
-                                                                                                                        end
-
-                                                                                                                        warnHelper36(findFirstChild22)
-                                                                                                                else
-                                                                                                                        bodyPosition = Instance.new("BodyPosition")
-                                                                                                                        bodyPosition.Name = "GucciBP"
-                                                                                                                        bodyPosition.D = 200
-                                                                                                                        bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                                                        random = math.random
-                                                                                                                        bodyPosition.Position = Vector3.new(math.random(-100000, 100000), 100000, random(-100000, 100000))
-                                                                                                                        vehicle2.BP = bodyPosition
-                                                                                                                        vehicle.Name = "GucciRSC"
-                                                                                                                        bodyPosition.Parent = root
-                                                                                                                        findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                        while miscHelper178() do
-                                                                                                                                task.wait()
-                                                                                                                        end
-
-                                                                                                                        parent3 = findFirstChild22.Parent
-                                                                                                                        seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                        miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                        if miscVar1018 then
-                                                                                                                                resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                        end
-
-                                                                                                                        if Runtime == vehicle2 then
-                                                                                                                                occupant = seat.Occupant
-                                                                                                                                playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                                if playerFromCharacter then
-                                                                                                                                        resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                                end
-
-                                                                                                                                warnHelper37()
-
-                                                                                                                                if playerFromCharacter then
-                                                                                                                                        warnHelper38()
-                                                                                                                                end
-                                                                                                                        end
-
-                                                                                                                        warnHelper36(findFirstChild22)
-                                                                                                                end
-                                                                                                        else
-                                                                                                                findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                                                while miscHelper178() do
-                                                                                                                        task.wait()
-                                                                                                                end
-
-                                                                                                                parent3 = findFirstChild22.Parent
-                                                                                                                seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                                                miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                                                if miscVar1018 then
-                                                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                                                end
-
-                                                                                                                if Runtime == vehicle2 then
-                                                                                                                        occupant = seat.Occupant
-                                                                                                                        playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                                        if playerFromCharacter then
-                                                                                                                                resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                                        end
-
-                                                                                                                        warnHelper37()
-
-                                                                                                                        if playerFromCharacter then
-                                                                                                                                warnHelper38()
-                                                                                                                        end
-                                                                                                                end
-
-                                                                                                                warnHelper36(findFirstChild22)
-                                                                                                        end
-                                                                                                end
-                                                                                        end
-                                                                                end
-
-                                                                                continue
+                                                                        if not (root and seat and (not seat.Occupant or seat.Occupant == humanoid)) then
+                                                                                -- игрушка сломана или на ней сидит чужой
+                                                                                gucciDropToy()
                                                                         else
-                                                                                local parent51
+                                                                                if not seated then
+                                                                                        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                                                                end
 
-                                                                                if exitTo == 3 then
-                                                                                        parent51 = object and gucciType ~= "Train"
+                                                                                if humanoid.SeatPart and humanoid.SeatPart ~= seat and not state.WarnedOtherSeat then
+                                                                                        state.WarnedOtherSeat = true
+                                                                                        resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
+                                                                                end
 
-                                                                                        if parent51 then
-                                                                                                State.ToyAuraReserved[object] = nil
-                                                                                                Hub.DestroyToy(object)
-                                                                                        end
+                                                                                -- переподключение сиденья разрывает локальный SeatWeld, поэтому
+                                                                                -- персонаж остаётся стоять там, где был
+                                                                                seat.Parent = nil
+                                                                                seat.Parent = toy
 
-                                                                                        continue
-                                                                                elseif exitTo == 4 then
-                                                                                        warnHelper38()
-                                                                                        continue
-                                                                                elseif exitTo == 5 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper37()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 6 then
-                                                                                        miscVar999 = findFirstChild22.Sit and seat.Occupant == findFirstChild22
-                                                                                        miscVar1000 = not miscVar999
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        if miscVar1000 then
-                                                                                                warnHelper36(findFirstChild22)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 7 then
-                                                                                        findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                        while miscHelper178() do
-                                                                                                task.wait()
-                                                                                        end
-
-                                                                                        parent3 = findFirstChild22.Parent
-                                                                                        seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                        miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                        if miscVar1018 then
-                                                                                                resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                        end
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                occupant = seat.Occupant
-                                                                                                playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                if playerFromCharacter then
-                                                                                                        resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                end
-
-                                                                                                warnHelper37()
-
-                                                                                                if playerFromCharacter then
-                                                                                                        warnHelper38()
+                                                                                if (hrp.CFrame.Position - root.CFrame.Position).Magnitude < 28 then
+                                                                                        for _, part in pairs(toy:GetChildren()) do
+                                                                                                if part:IsA("BasePart") and part.CanQuery then
+                                                                                                        Remotes.SetNetworkOwner:FireServer(part, CFrame.lookAt(hrp.CFrame.Position, part.CFrame.Position))
                                                                                                 end
                                                                                         end
+                                                                                end
 
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 8 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
+                                                                                if not humanoid.SeatPart then
+                                                                                        humanoid.Sit = false
+                                                                                else
+                                                                                        tailWait = false
+                                                                                        gucciWait()
+
+                                                                                        if not gucciAlive() then
+                                                                                                return
+                                                                                        end
+                                                                                end
+
+                                                                                root = gucciToyRoot(toy)
+                                                                                seat = toy.Parent and gucciToySeat(toy) or nil
+
+                                                                                if hrp.Parent and humanoid.Parent and root and seat and (not seat.Occupant or seat.Occupant == humanoid) then
+                                                                                        local ragdolled = humanoid:FindFirstChild("Ragdolled")
+
+                                                                                        if ragdolled and ragdolled.Value then
+                                                                                                seated = false
                                                                                         end
 
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 9 then
-                                                                                        warnHelper38()
-                                                                                        continue
-                                                                                elseif exitTo == 10 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper37()
-                                                                                        end
+                                                                                        if seat.Occupant == humanoid then
+                                                                                                seated = true
+                                                                                        elseif not seated then
+                                                                                                gucciWait()
+                                                                                                tailWait = false
 
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 11 then
-                                                                                        miscVar999 = findFirstChild22.Sit and seat.Occupant == findFirstChild22
-                                                                                        miscVar1000 = not miscVar999
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        if miscVar1000 then
-                                                                                                warnHelper36(findFirstChild22)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 12 then
-                                                                                        findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                        while miscHelper178() do
-                                                                                                task.wait()
-                                                                                        end
-
-                                                                                        parent3 = findFirstChild22.Parent
-                                                                                        seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                        miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                        if miscVar1018 then
-                                                                                                resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                        end
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                occupant = seat.Occupant
-                                                                                                playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                if playerFromCharacter then
-                                                                                                        resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
+                                                                                                if not gucciAlive() then
+                                                                                                        return
                                                                                                 end
 
-                                                                                                warnHelper37()
+                                                                                                root = gucciToyRoot(toy)
+                                                                                                seat = toy.Parent and gucciToySeat(toy) or nil
 
-                                                                                                if playerFromCharacter then
-                                                                                                        warnHelper38()
+                                                                                                if root and seat and (not seat.Occupant or seat.Occupant == humanoid) then
+                                                                                                        local ragdolled2 = humanoid:FindFirstChild("Ragdolled")
+
+                                                                                                        if not ragdolled2 or not ragdolled2.Value then
+                                                                                                                seat:Sit(humanoid)
+                                                                                                                Remotes.RagdollRemote:FireServer(hrp, 0.016)
+                                                                                                        end
                                                                                                 end
                                                                                         end
 
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 13 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
+                                                                                        if seated then
+                                                                                                root = gucciToyRoot(toy)
 
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 14 then
-                                                                                        parent51 = object and gucciType ~= "Train"
-
-                                                                                        if parent51 then
-                                                                                                State.ToyAuraReserved[object] = nil
-                                                                                                Hub.DestroyToy(object)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 15 then
-                                                                                        warnHelper38()
-                                                                                        continue
-                                                                                elseif exitTo == 16 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper37()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 17 then
-                                                                                        miscVar999 = findFirstChild22.Sit and seat.Occupant == findFirstChild22
-                                                                                        miscVar1000 = not miscVar999
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        if miscVar1000 then
-                                                                                                warnHelper36(findFirstChild22)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 18 then
-                                                                                        findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                        while miscHelper178() do
-                                                                                                task.wait()
-                                                                                        end
-
-                                                                                        parent3 = findFirstChild22.Parent
-                                                                                        seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                        miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                        if miscVar1018 then
-                                                                                                resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                        end
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                occupant = seat.Occupant
-                                                                                                playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                if playerFromCharacter then
-                                                                                                        resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
+                                                                                                if root and root.Parent then
+                                                                                                        root.AssemblyLinearVelocity = Vector3.new(0, 1e15, 0)
                                                                                                 end
-
-                                                                                                warnHelper37()
-
-                                                                                                if playerFromCharacter then
-                                                                                                        warnHelper38()
-                                                                                                end
+                                                                                        elseif (toyAge[toy] or 0) >= gucciDataPing() / 250 then
+                                                                                                -- сесть не получилось за время, зависящее от пинга: заменить игрушку
+                                                                                                gucciDestroyToy(toy)
+                                                                                                humanoid.Sit = true
                                                                                         end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 19 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 20 then
-                                                                                        warnHelper38()
-                                                                                        continue
-                                                                                elseif exitTo == 21 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper37()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 22 then
-                                                                                        miscVar999 = findFirstChild22.Sit and seat.Occupant == findFirstChild22
-                                                                                        miscVar1000 = not miscVar999
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        if miscVar1000 then
-                                                                                                warnHelper36(findFirstChild22)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 23 then
-                                                                                        findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                        while miscHelper178() do
-                                                                                                task.wait()
-                                                                                        end
-
-                                                                                        parent3 = findFirstChild22.Parent
-                                                                                        seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                        miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                        if miscVar1018 then
-                                                                                                resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                        end
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                occupant = seat.Occupant
-                                                                                                playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                if playerFromCharacter then
-                                                                                                        resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                end
-
-                                                                                                warnHelper37()
-
-                                                                                                if playerFromCharacter then
-                                                                                                        warnHelper38()
-                                                                                                end
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 24 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 25 then
-                                                                                        if miscVar1026 ~= gucciType then
-                                                                                                local miscVar996 = resolveAssetInputVar82
-                                                                                                local text75
-
-                                                                                                if object then
-                                                                                                        text75 = "Train doesn't have seats!"
-                                                                                                else
-                                                                                                        text75 = "Train doesn't exist!"
-                                                                                                end
-
-                                                                                                miscVar996(text75)
-                                                                                                miscVar1026 = gucciType
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 26 then
-                                                                                        parent51 = object and gucciType ~= "Train"
-
-                                                                                        if parent51 then
-                                                                                                State.ToyAuraReserved[object] = nil
-                                                                                                Hub.DestroyToy(object)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 27 then
-                                                                                        warnHelper38()
-                                                                                        continue
-                                                                                elseif exitTo == 28 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper37()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 29 then
-                                                                                        miscVar999 = findFirstChild22.Sit and seat.Occupant == findFirstChild22
-                                                                                        miscVar1000 = not miscVar999
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        if miscVar1000 then
-                                                                                                warnHelper36(findFirstChild22)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 30 then
-                                                                                        findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                        while miscHelper178() do
-                                                                                                task.wait()
-                                                                                        end
-
-                                                                                        parent3 = findFirstChild22.Parent
-                                                                                        seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                        miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                        if miscVar1018 then
-                                                                                                resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                        end
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                occupant = seat.Occupant
-                                                                                                playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                if playerFromCharacter then
-                                                                                                        resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                end
-
-                                                                                                warnHelper37()
-
-                                                                                                if playerFromCharacter then
-                                                                                                        warnHelper38()
-                                                                                                end
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 31 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 32 then
-                                                                                        warnHelper38()
-                                                                                        continue
-                                                                                elseif exitTo == 33 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper37()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 34 then
-                                                                                        miscVar999 = findFirstChild22.Sit and seat.Occupant == findFirstChild22
-                                                                                        miscVar1000 = not miscVar999
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        if miscVar1000 then
-                                                                                                warnHelper36(findFirstChild22)
-                                                                                        end
-
-                                                                                        continue
-                                                                                elseif exitTo == 35 then
-                                                                                        findFirstChild22:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-
-                                                                                        while miscHelper178() do
-                                                                                                task.wait()
-                                                                                        end
-
-                                                                                        parent3 = findFirstChild22.Parent
-                                                                                        seatPart = parent3 and findFirstChild22.Health > 0 and findFirstChild22.SeatPart
-                                                                                        miscVar1018 = seatPart and findFirstChild22.SeatPart ~= seat
-
-                                                                                        if miscVar1018 then
-                                                                                                resolveAssetInputVar82("You can't sit on other Vehicles while in Gucci!", "Invincibility")
-                                                                                        end
-
-                                                                                        if Runtime == vehicle2 then
-                                                                                                occupant = seat.Occupant
-                                                                                                playerFromCharacter = occupant and occupant ~= findFirstChild22 and Players:GetPlayerFromCharacter(occupant.Parent)
-
-                                                                                                if playerFromCharacter then
-                                                                                                        resolveAssetInputVar82(playerFromCharacter.DisplayName .. " sat on your gucci!")
-                                                                                                end
-
-                                                                                                warnHelper37()
-
-                                                                                                if playerFromCharacter then
-                                                                                                        warnHelper38()
-                                                                                                end
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
-                                                                                elseif exitTo == 36 then
-                                                                                        if Runtime == vehicle2 then
-                                                                                                warnHelper38()
-                                                                                        end
-
-                                                                                        warnHelper36(findFirstChild22)
-                                                                                        continue
                                                                                 end
                                                                         end
                                                                 end
 
-                                                                break
+                                                                if tailWait then
+                                                                        gucciWait()
+
+                                                                        if gucciAlive() and humanoid.Parent then
+                                                                                humanoid.Sit = false
+                                                                        end
+                                                                end
+                                                        end
+
+                                                        local yieldsBefore = yields
+
+                                                        -- персонаж сменился (респавн) или погиб: закончить, супервизор всё отпустит и начнёт заново
+                                                        while gucciAlive() and localPlayer.Character == state.Char and state.Hum ~= nil and state.Hum.Health > 0 do
+                                                                if Options.GucciType ~= gucciType then
+                                                                        return
+                                                                end
+
+                                                                local ok, result = pcall(gucciIteration)
+
+                                                                if not ok then
+                                                                        errorStreak = errorStreak + 1
+                                                                        warn("[GUCCI Anti Grab] " .. tostring(result))
+
+                                                                        if errorStreak >= 20 then
+                                                                                error(result)
+                                                                        end
+                                                                else
+                                                                        errorStreak = 0
+                                                                end
+
+                                                                -- ни одна ветка не должна крутиться без паузы
+                                                                if yields == yieldsBefore then
+                                                                        gucciWait()
+                                                                end
+
+                                                                yieldsBefore = yields
                                                         end
                                                 end
 
-                                                Hub.SetGucciAntiGrab = function(value454)
-                                                        Config.GucciAntiGrab = value454 and not miscFlag3
+                                                -- перенос StartTrainGucci: сесть на сиденье поезда и слать RagdollRemote каждый кадр
+                                                local function gucciTrainRun(state)
+                                                        local character = state.Char
+                                                        local humanoid = character:FindFirstChild("Humanoid")
+                                                        local rootPart = character:FindFirstChild("HumanoidRootPart")
+
+                                                        if not (humanoid and rootPart and humanoid.Health > 0) then
+                                                                return
+                                                        end
+
+                                                        state.Hum = humanoid
+                                                        state.HRP = rootPart
+
+                                                        local safePosition = rootPart.Position
+                                                        local restoreFrames = 0
+                                                        local seat = nil
+
+                                                        if train then
+                                                                for _, descendant in ipairs(train:GetDescendants()) do
+                                                                        if descendant:IsA("Seat") then
+                                                                                seat = descendant
+                                                                                break
+                                                                        end
+                                                                end
+                                                        end
+
+                                                        if seat then
+                                                                local objectModel = train:FindFirstChild("Object")
+                                                                objectModel = objectModel and objectModel:FindFirstChild("ObjectModel")
+
+                                                                if objectModel then
+                                                                        state.Vehicle = objectModel
+                                                                        state.Reserved = State.ToyAuraReserved[objectModel]
+                                                                        State.ToyAuraReserved[objectModel] = true
+                                                                end
+
+                                                                state.Seat = seat
+                                                                state.SeatTransparency = seat.Transparency
+                                                                seat.Transparency = 1
+                                                                rootPart.CFrame = seat.CFrame + Vector3.new(0, 2, 0)
+                                                                seat:Sit(humanoid)
+                                                        end
+
+                                                        table.insert(state.Connections, humanoid:GetPropertyChangedSignal("Jump"):Connect(function()
+                                                                if humanoid.Jump and humanoid.Sit then
+                                                                        restoreFrames = 15
+                                                                        safePosition = rootPart.Position
+                                                                end
+                                                        end))
+
+                                                        local heartbeat
+
+                                                        heartbeat = RunService.Heartbeat:Connect(function()
+                                                                if Gucci ~= state then
+                                                                        return
+                                                                end
+
+                                                                if not rootPart.Parent or not humanoid.Parent then
+                                                                        return
+                                                                end
+
+                                                                Remotes.RagdollRemote:FireServer(rootPart, 0)
+
+                                                                if restoreFrames > 0 then
+                                                                        rootPart.CFrame = CFrame.new(safePosition)
+                                                                        restoreFrames = restoreFrames - 1
+                                                                end
+                                                        end)
+
+                                                        table.insert(state.Connections, heartbeat)
+
+                                                        -- сидим, пока игрок не слезет
+                                                        while humanoid.Sit and Gucci == state do
+                                                                task.wait(1)
+                                                        end
+
+                                                        if Gucci ~= state then
+                                                                return
+                                                        end
+
+                                                        task.wait(0.5)
+
+                                                        if Gucci ~= state then
+                                                                return
+                                                        end
+
+                                                        if localPlayer.Character == character and rootPart.Parent then
+                                                                rootPart.CFrame = CFrame.new(safePosition)
+                                                        end
+
+                                                        -- вне сиденья пакеты против рэгдолла продолжают уходить каждый кадр,
+                                                        -- пока GUCCI не выключат или не сменится персонаж
+                                                        while Gucci == state and Options.GucciType == state.Type and localPlayer.Character == character and rootPart.Parent and humanoid.Health > 0 do
+                                                                task.wait(0.25)
+                                                        end
+                                                end
+
+                                                local function gucciKillControlScript(child)
+                                                        if child:IsA("LocalScript") and child.Name:lower():find("control") then
+                                                                child.Enabled = false
+                                                                child:Destroy()
+                                                        end
+                                                end
+
+                                                local function gucciSupervisor()
+                                                        while Config.GucciAntiGrab do
+                                                                local character, _, humanoid = Hub.Char()
+
+                                                                if not (character and humanoid and humanoid.Health > 0) then
+                                                                        task.wait()
+                                                                else
+                                                                        local state = { Type = Options.GucciType, Char = character, Hum = humanoid, Connections = {} }
+                                                                        Gucci = state
+
+                                                                        -- стандартный скрипт управления транспортом не должен перехватывать камеру
+                                                                        table.insert(state.Connections, character.ChildAdded:Connect(gucciKillControlScript))
+
+                                                                        if state.Type == "Train" then
+                                                                                gucciTrainRun(state)
+                                                                        else
+                                                                                gucciToyLoop(state)
+                                                                        end
+
+                                                                        if Gucci == state then
+                                                                                -- цикл закончился сам (потерялся персонаж, выбрали другой тип): всё отпустить и попробовать снова
+                                                                                gucciCleanup()
+                                                                                task.wait(0.5)
+                                                                        end
+                                                                end
+                                                        end
+                                                end
+
+                                                Hub.SetGucciAntiGrab = function(value)
+                                                        Config.GucciAntiGrab = value and not miscFlag3
 
                                                         if not Config.GucciAntiGrab then
-                                                                warnHelper38()
+                                                                gucciCleanup()
                                                                 return
                                                         end
 
-                                                        if miscVar1039 then
+                                                        if gucciSwitching then
                                                                 return
                                                         end
-                                                        miscVar1039 = true
+
+                                                        gucciSwitching = true
 
                                                         task.spawn(function()
-                                                                local ok, result = pcall(miscHelper180)
-                                                                warnHelper38()
-                                                                miscVar1039 = nil
+                                                                local ok, result = pcall(gucciSupervisor)
+                                                                gucciCleanup()
+                                                                gucciSwitching = nil
 
                                                                 if not ok then
                                                                         warn("[GUCCI Anti Grab] " .. tostring(result))
 
-                                                                        if not miscFlag3 then
+                                                                        if not miscFlag3 and Config.GucciAntiGrab then
                                                                                 toggles.GucciAntiGrab:SetValue(false)
                                                                         end
                                                                 end
@@ -32552,7 +31188,7 @@ end
                                                                 end)
                                                         end
 
-                                                        if not (spawnToyVar6 or tick() - now3 > 1.3) then
+                                                        if not (spawnToyVar6 or tick() - now3 > 2.6) then
                                                                 continue
                                                         end
                                                         break
@@ -36950,7 +35586,7 @@ Hub.SpawnCoconutForms = function()
                                                         while true do
                                                                 obj26:Sit(health44)
                                                                 notifyHelper31()
-                                                                if not (removeGucciVar7 or tick() - now3 > 0.5 or not obj26.Parent or health44.Health <= 0 or miscFlag3) then
+                                                                if not (removeGucciVar7 or tick() - now3 > 2 or not obj26.Parent or health44.Health <= 0 or miscFlag3) then
                                                                         continue
                                                                 end
                                                                 break
@@ -36961,7 +35597,7 @@ Hub.SpawnCoconutForms = function()
                                                         if removeGucciVar7 then
                                                                 local now4 = tick()
 
-                                                                while not removeGucciVar8 and not miscFlag3 and childAdded.Parent and health44.Health > 0 and tick() - now4 < 0.5 do
+                                                                while not removeGucciVar8 and not miscFlag3 and childAdded.Parent and health44.Health > 0 and tick() - now4 < 2 do
                                                                         task.wait()
                                                                 end
                                                         end
@@ -42404,7 +41040,9 @@ Escape Timer: %*]]
                         local ekiHold = {}
                         local alignKickState = {}
                         local ekiHoldState = {} -- [player] = время старта фазы удержания
-                        local ekiBypassAt = {} -- [player] = время последнего sticky-байпаса
+local ekiForceLiftAt = {} -- [player] = время последнего Force Lift
+local ekiVelAt = {} -- [player] = время последнего обнуления скоростей
+local ekiOwnAt = {} -- [player] = время последнего SNO-клейма владения
 
                         -- Луч вниз от корня цели: ничего не нашли — цель не на земле
                         -- (идёт удержание, а не лежит на земле после неудачной притяжки).
@@ -42440,6 +41078,7 @@ Escape Timer: %*]]
                         -- (0.28) после НАЧАЛА удержания — не мгновенно.
                         -- Каждая часть включается/выключается во вкладке Experimental.
                         -- ============================================================
+
                         local function runEKI(player, character, rootPart, humanoid, ready)
                                 if not ready then
                                         return
@@ -42489,6 +41128,7 @@ Escape Timer: %*]]
 
                                 if Config.EKIPhysicsState then
                                         pcall(function()
+                                                humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
                                                 humanoid:ChangeState(Enum.HumanoidStateType.Physics)
                                         end)
                                 end
@@ -42509,6 +41149,63 @@ Escape Timer: %*]]
                                         end)
                                 end
 
+                                -- 1.5) Модель цели: Touch-механики и сиденье-якорь.
+                                if Config.EKITouchOff then
+                                        pcall(function()
+                                                for _, part in ipairs(character:GetDescendants()) do
+                                                        if part:IsA("BasePart") then
+                                                                if part.CanTouch then
+                                                                        part.CanTouch = false
+                                                                end
+                                                                if part.CanQuery then
+                                                                        part.CanQuery = false
+                                                                end
+                                                        end
+                                                end
+                                        end)
+                                end
+
+                                if Config.EKIBreakSeatWeld then
+                                        pcall(function()
+                                                local seatPart = humanoid.SeatPart
+                                                if seatPart and seatPart.Parent then
+                                                        local seatWeld = seatPart:FindFirstChild("SeatWeld")
+                                                        if seatWeld and seatWeld:IsA("Weld") and seatWeld.Enabled then
+                                                                seatWeld.Enabled = false
+                                                        end
+                                                end
+                                                for _, inst in ipairs(character:GetDescendants()) do
+                                                        if inst:IsA("Weld") and inst.Name == "SeatWeld" and inst.Enabled then
+                                                                inst.Enabled = false
+                                                        end
+                                                end
+                                        end)
+                                end
+
+                                -- 1.6) Импульс: цель не может набрать скорость и вырваться.
+                                if Config.EKIZeroVelocity then
+                                        local nowVel = os.clock()
+                                        if (ekiVelAt[player] or 0) <= nowVel then
+                                                ekiVelAt[player] = nowVel + math.max(0.02, (Config.EKIRemoteInterval or 0.3) * 0.5)
+                                                pcall(function()
+                                                        rootPart.AssemblyLinearVelocity = Vector3.zero
+                                                        rootPart.AssemblyAngularVelocity = Vector3.zero
+                                                        Hub.ResetVelocity(rootPart)
+                                                end)
+                                        end
+                                end
+
+                                -- 1.7) Владение: пока мы PartOwner, все наши записи реплицируются.
+                                if Config.EKIKeepOwnership then
+                                        local nowOwn = os.clock()
+                                        if (ekiOwnAt[player] or 0) <= nowOwn then
+                                                ekiOwnAt[player] = nowOwn + math.max(0.25, Config.EKIRemoteInterval or 0.3)
+                                                if not Hub.IsPartOwner(rootPart) then
+                                                        task.spawn(Hub.SNO, rootPart, 0.2)
+                                                end
+                                        end
+                                end
+
                                 -- 2) Экспериментальная физика (sethiddenproperty):
                                 --    PhysicsRepRootPart + NetworkIsSleeping = false,
                                 --    с настраиваемой скоростью отправки (ремоутов).
@@ -42525,17 +41222,6 @@ Escape Timer: %*]]
                                         end
                                 end
 
-                                -- 3) Байпас Sticky Anti Grab: если к цели приклеено
-                                --    что-то астрономически далёкое (оффсет ~1e98), её
-                                --    невозможно поднять/двигать — нейтрализуем.
-                                if Config.EKIBypassSticky then
-                                        local nowB = os.clock()
-
-                                        if (ekiBypassAt[player] or 0) <= nowB then
-                                                ekiBypassAt[player] = nowB + (Config.EKIBypassInterval or 0.2)
-                                                task.spawn(Hub.BypassStickyAntiGrab, character, rootPart)
-                                        end
-                                end
                         end
 
 
@@ -42591,7 +41277,7 @@ Escape Timer: %*]]
                                 StopAlignKick(value190)
                                 ekiHold[value190] = nil
                                 ekiHoldState[value190] = nil
-                                ekiBypassAt[value190] = nil
+                                ekiForceLiftAt[value190] = nil
                                 local miscVar234, findFirstChild4, findFirstChild5 = Hub.Char(value190)
 
                                 if findFirstChild4 then
@@ -42794,7 +41480,17 @@ Escape Timer: %*]]
 
                                                                                         if not (Hub.GetMagnitude(miscVar219, parent19) > 33) then
                                                                                                 Hub.Grab(parent19)
-                                                                                                task.delay(0.2, Hub.RNO, parent19)
+                                                                                                Hub.RNO(parent19)
+                                                                                                -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
+                                                                                                -- бессилен против приваренной далёкой детали) — поднимаем её
+                                                                                                -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
+                                                                                                if Config.EKIForceLift then
+                                                                                                        local nowFL = os.clock()
+                                                                                                        if (ekiForceLiftAt[item159] or 0) <= nowFL then
+                                                                                                                ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
+                                                                                                                task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
+                                                                                                        end
+                                                                                                end
 
                                                                                                 runEKI(item159, findFirstChild3, parent19, health6, ekiReady)
 
@@ -42811,7 +41507,17 @@ Escape Timer: %*]]
                                                                                         elseif Hub.SNO(parent19) then
                                                                                                 Hub.Teleport(parent19, y4)
                                                                                                 Hub.Grab(parent19)
-                                                                                                task.delay(0.2, Hub.RNO, parent19)
+                                                                                                Hub.RNO(parent19)
+                                                                                                -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
+                                                                                                -- бессилен против приваренной далёкой детали) — поднимаем её
+                                                                                                -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
+                                                                                                if Config.EKIForceLift then
+                                                                                                        local nowFL = os.clock()
+                                                                                                        if (ekiForceLiftAt[item159] or 0) <= nowFL then
+                                                                                                                ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
+                                                                                                                task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
+                                                                                                        end
+                                                                                                end
 
                                                                                                 runEKI(item159, findFirstChild3, parent19, health6, ekiReady)
 
@@ -42884,10 +41590,20 @@ Escape Timer: %*]]
 
                                                                                 if not (Hub.GetMagnitude(miscVar219, parent19) > 33) then
                                                                                         Hub.Grab(parent19)
+                                                                                        -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
+                                                                                        -- бессилен против приваренной далёкой детали) — поднимаем её
+                                                                                        -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
+                                                                                        if Config.EKIForceLift then
+                                                                                                local nowFL = os.clock()
+                                                                                                if (ekiForceLiftAt[item159] or 0) <= nowFL then
+                                                                                                        ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
+                                                                                                        task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
+                                                                                                end
+                                                                                        end
                                                                                         miscVar199 = Options.NKDelayMode == "Faster but worse" or not Options.NKDelayMode
 
                                                                                         if miscVar199 then
-                                                                                                task.delay(0.2, Hub.RNO, parent19)
+                                                                                                Hub.RNO(parent19)
                                                                                         elseif Options.NKDelayMode == "Normal" then
                                                                                                 task.spawn(function()
                                                                                                         task.wait()
@@ -42913,10 +41629,20 @@ Escape Timer: %*]]
                                                                                 elseif Hub.SNO(parent19) then
                                                                                         Hub.Teleport(parent19, y4)
                                                                                         Hub.Grab(parent19)
+                                                                                        -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
+                                                                                        -- бессилен против приваренной далёкой детали) — поднимаем её
+                                                                                        -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
+                                                                                        if Config.EKIForceLift then
+                                                                                                local nowFL = os.clock()
+                                                                                                if (ekiForceLiftAt[item159] or 0) <= nowFL then
+                                                                                                        ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
+                                                                                                        task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
+                                                                                                end
+                                                                                        end
                                                                                         miscVar199 = Options.NKDelayMode == "Faster but worse" or not Options.NKDelayMode
 
                                                                                         if miscVar199 then
-                                                                                                task.delay(0.2, Hub.RNO, parent19)
+                                                                                                Hub.RNO(parent19)
                                                                                         elseif Options.NKDelayMode == "Normal" then
                                                                                                 task.spawn(function()
                                                                                                         task.wait()
@@ -46017,6 +44743,26 @@ Escape Timer: %*]]
                         end,
                 })
 
+                local ModelCtrl = Tabs.Experimental:AddLeftGroupbox("Target Model Control", "box")
+
+                ModelCtrl:AddToggle("EKITouchOffT", {
+                        Text = "No Touch Events (CanTouch/CanQuery)",
+                        Default = false,
+                        Tooltip = "CanTouch = false and CanQuery = false on every part of the target model: their touch-based mechanics (counter-grab and so on) stop firing in our simulation. May also affect raycasts on the target (silent aim etc.), so it is off by default.",
+                        Callback = function(ekiTouchOff)
+                                Config.EKITouchOff = ekiTouchOff
+                        end,
+                })
+
+                ModelCtrl:AddToggle("EKIBreakSeatWeldT", {
+                        Text = "Break Seat Weld",
+                        Default = true,
+                        Tooltip = "Disables the SeatWeld of the seat the target is sitting in (plus any SeatWeld inside their character): a seated target can't anchor itself in a seat or vehicle to resist the hold. Like a mini Sticky Anti Grab — the weld pins them to a part we don't own.",
+                        Callback = function(ekiBreakSeatWeld)
+                                Config.EKIBreakSeatWeld = ekiBreakSeatWeld
+                        end,
+                })
+
                 local Physics = Tabs.Experimental:AddRightGroupbox("Physics & Remotes", "network")
 
                 Physics:AddToggle("EKIPhysicsRepT", {
@@ -46051,74 +44797,47 @@ Escape Timer: %*]]
                         end,
                 })
 
-                local Sticky = Tabs.Experimental:AddRightGroupbox("Sticky Anti Grab Bypass", "unplug")
+                Physics:AddToggle("EKIZeroVelocityT", {
+                        Text = "Zero Velocity Loop",
+                        Default = true,
+                        Tooltip = "Zeroes the target's root velocity (linear + angular) on every EKI interval: they can never build momentum, so they can't yank themselves out of the hold.",
+                        Callback = function(ekiZeroVelocity)
+                                Config.EKIZeroVelocity = ekiZeroVelocity
+                        end,
+                })
 
-                Sticky:AddToggle("EKIBypassStickyT", {
-                        Text = "Bypass Sticky Anti Grab",
+                Physics:AddToggle("EKIKeepOwnershipT", {
+                        Text = "Re-claim Ownership (SNO)",
+                        Default = true,
+                        Tooltip = "If the server hands network ownership of the target's root back to them, every local write (lockdown, velocities, CFrames) stops replicating and they break free. This re-claims the grab (SNO) while we don't own their root. Keep ON.",
+                        Callback = function(ekiKeepOwnership)
+                                Config.EKIKeepOwnership = ekiKeepOwnership
+                        end,
+                })
+
+                local ForceLift = Tabs.Experimental:AddRightGroupbox("Force Lift (Sticky-Proof)", "arrow-big-up")
+                
+                ForceLift:AddToggle("EKIForceLiftT", {
+                        Text = "Force Lift Target",
                         Default = true,
                         Risky = true,
-                        Tooltip = "If the target has Sticky Anti Grab (a part welded to them ~1e98 studs away so they can't be lifted or moved), EKI automatically neutralizes it: steals network ownership, locally unwelds the far parts, destroys TouchInterest, tries server-side DestroyToy and flings the toy into the void.",
-                        Callback = function(ekiBypassSticky)
-                                Config.EKIBypassSticky = ekiBypassSticky
+                        Tooltip = "Lifts a target that has Sticky Anti Grab WITHOUT touching their sticky parts at all. BodyPosition can't move such a target (their assembly is welded to a far part), so Force Lift lifts the model itself: claims the grab (SetNetworkOwner), then kinematically writes the CFrame of every part of the target's model (the same technique Bring Player uses) and resets their velocities. Runs on the attraction phase (before the hold gate), so sticky targets actually reach the hold point.",
+                        Callback = function(ekiForceLift)
+                                Config.EKIForceLift = ekiForceLift
                         end,
                 })
-
-                Sticky:AddToggle("EKIBypassSNOT", {
-                        Text = "Steal Network Ownership",
-                        Default = true,
-                        Tooltip = "Claims the target's assembly ownership first — required for the local unweld to matter.",
-                        Callback = function(ekiBypassSNO)
-                                Config.EKIBypassSNO = ekiBypassSNO
-                        end,
-                })
-
-                Sticky:AddToggle("EKIBypassLocalUnweldT", {
-                        Text = "Local Unweld",
-                        Default = true,
-                        Tooltip = "Locally destroys the welds between the target's body and the far sticky parts. Client-side only, but as assembly owner our simulation wins.",
-                        Callback = function(ekiBypassLocalUnweld)
-                                Config.EKIBypassLocalUnweld = ekiBypassLocalUnweld
-                        end,
-                })
-
-                Sticky:AddToggle("EKIBypassTouchInterestT", {
-                        Text = "Destroy Touch Interest",
-                        Default = true,
-                        Tooltip = "Removes TouchInterest from the sticky parts so they can't re-stick by touching.",
-                        Callback = function(ekiBypassTouchInterest)
-                                Config.EKIBypassTouchInterest = ekiBypassTouchInterest
-                        end,
-                })
-
-                Sticky:AddToggle("EKIBypassDestroyToyT", {
-                        Text = "Server Destroy Toy",
-                        Default = true,
-                        Tooltip = "Fires the game's DestroyToy remote on the enemy toy — removes the sticky part completely if the server allows it.",
-                        Callback = function(ekiBypassDestroyToy)
-                                Config.EKIBypassDestroyToy = ekiBypassDestroyToy
-                        end,
-                })
-
-                Sticky:AddToggle("EKIBypassFlingToyT", {
-                        Text = "Fling Toy To Void",
-                        Default = true,
-                        Tooltip = "Same technique as Remove Anti-Kick: grabs the toy and drags it to (0, -50000, 0), ripping the sticky part away.",
-                        Callback = function(ekiBypassFlingToy)
-                                Config.EKIBypassFlingToy = ekiBypassFlingToy
-                        end,
-                })
-
-                Sticky:AddSlider("EKIBypassIntervalS", {
-                        Text = "Bypass Interval",
-                        Default = 0.2,
-                        Min = 0.05,
-                        Max = 2,
+                
+                ForceLift:AddSlider("EKIForceLiftIntervalS", {
+                        Text = "Lift Interval",
+                        Default = 0.06,
+                        Min = 0.02,
+                        Max = 0.5,
                         Rounding = 2,
                         Compact = true,
                         Suffix = "s",
-                        Tooltip = "How often the bypass re-runs while holding (the enemy anti-grab may re-stick every frame).",
-                        Callback = function(ekiBypassInterval)
-                                Config.EKIBypassInterval = ekiBypassInterval
+                        Tooltip = "How often the force lift re-writes the target's position while attracting/holding them. Lower = stronger pin, more remotes.",
+                        Callback = function(ekiForceLiftInterval)
+                                Config.EKIForceLiftInterval = ekiForceLiftInterval
                         end,
                 })
         end
