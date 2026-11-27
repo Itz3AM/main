@@ -22559,36 +22559,36 @@ local ThemeManager = {
         ["Discord"] = { 19, { FontColor = "ffffff", MainColor = "1a1a1e", AccentColor = "5865f2", BackgroundColor = "1a1a1e", OutlineColor = "292a2d" } }
     },
     Fonts = {
-                "Antique",
-                "Arcade",
-                "Arial",
-                "ArialBold",
-                "Bodoni",
-                "BuilderSans",
-                "Cartoon",
-                "Code",
-                "Fantasy",
-                "Garamond",
-                "Gotham",
-                "GothamBlack",
-                "GothamBold",
-                "GothamMedium",
-                "Highway",
-                "JosefinSans",
-                "Jura",
-                "Legacy",
-                "LuckiestGuy",
-                "Merriweather",
-                "Nunito",
-                "Roboto",
-                "RobotoCondensed",
-                "RobotoMono",
-                "SciFi",
-                "SourceSans",
-                "SourceSansBold",
-                "SourceSansItalic",
-                "Ubuntu"
-        }
+		"Antique",
+		"Arcade",
+		"Arial",
+		"ArialBold",
+		"Bodoni",
+		"BuilderSans",
+		"Cartoon",
+		"Code",
+		"Fantasy",
+		"Garamond",
+		"Gotham",
+		"GothamBlack",
+		"GothamBold",
+		"GothamMedium",
+		"Highway",
+		"JosefinSans",
+		"Jura",
+		"Legacy",
+		"LuckiestGuy",
+		"Merriweather",
+		"Nunito",
+		"Roboto",
+		"RobotoCondensed",
+		"RobotoMono",
+		"SciFi",
+		"SourceSans",
+		"SourceSansBold",
+		"SourceSansItalic",
+		"Ubuntu"
+	}
 }
 do
     local ThemeFields = {
@@ -24337,38 +24337,6 @@ do
                                                         RagdollInRG = false,
                                                         DeleteShurInNK = true,
                                                         EKI = false,
-                                                        -- ===== Experimental Kick Improvements [BETA] =====
-                                                        -- (вкладка Experimental; кик на BodyGyro/BodyPosition)
-                                                        EKIUseHoldGate = true, -- EKI только на фазе удержания
-                                                        EKIDelay = 0.28, -- задержка после начала удержания (лучшее значение)
-                                                        EKIHoldRadius = 10, -- радиус от точки удержания
-                                                        EKIGroundCheck = true, -- цель не должна лежать на земле
-                                                        -- Humanoid lockdown: цель вообще ничего не может сделать
-                                                        EKIPlatformStand = true, -- PlatformStand = true
-                                                        EKIPhysicsState = true, -- ChangeState(Physics)
-                                                        EKIDisableStates = true, -- отключить Jumping/Climbing/...
-                                                        EKIZeroMovement = true, -- WalkSpeed/JumpPower/JumpHeight = 0
-                                                        EKIAutoRotate = true, -- AutoRotate = false
-                                                        EKISitLock = true, -- Sit = true
-                                                        EKIAutoJumpOff = true, -- AutoJumpEnabled = false
-                                                        EKIMaxSlopeZero = true, -- MaxSlopeAngle = 0
-                                                        EKIStateMachineOff = true, -- EvaluateStateMachine = false
-                                                        EKIUnequipTools = true, -- UnequipTools()
-                                                        EKIFreezeAnimations = false, -- заморозить анимации (Speed = 0)
-                                                        -- Физика / ремоуты
-                                                        EKIPhysicsRep = true, -- sethiddenproperty PhysicsRepRootPart
-                                                        EKIRemoteInterval = 0.3, -- скорость отправки (интервал, сек)
-                                                        EKINetworkSleepOff = true, -- NetworkIsSleeping = false
-                                                        -- Force Lift: подъём sticky-цели БЕЗ снятия стиков
-                                                        -- (граб-клейм + CFrame-записи всей модели)
-                                                        EKIForceLift = true, -- Force Lift включён
-                                                        EKIForceLiftInterval = 0.06, -- как часто повторять подъём (сек)
-                                                        -- Удержание: импульс и владение (цель не может вырваться)
-                                                        EKIKeepOwnership = true, -- перезабирать network ownership рута цели
-                                                        EKIZeroVelocity = true, -- обнулять скорости (цель не набирает импульс)
-                                                        -- Модель цели
-                                                        EKITouchOff = false, -- CanTouch/CanQuery = false у частей цели
-                                                        EKIBreakSeatWeld = true, -- ломать SeatWeld (цель не может привариться сидя)
                                                         AutoHouse = false,
                                                         Invisibility = false,
                                                         GradientLine = false,
@@ -27542,63 +27510,6 @@ end
                                         end))
                                 end
 
-                                -- ============================================================
-                                -- FORCE LIFT — подъём цели со Sticky Anti Grab БЕЗ снятия
-                                -- стиков (мы их вообще не трогаем). Вместо борьбы со стиком
-                                -- поднимаем саму МОДЕЛЬ цели, в обход физики сборки:
-                                --   1. Граб-клейм (SNO / SetNetworkOwner) по РУТУ цели:
-                                --      пока мы PartOwner, наши CFrame-записи реплицируются
-                                --      на сервер (владение в этой игре даётся на сборку).
-                                --   2. Кинематический подъём: пишем CFrame КАЖДОЙ части
-                                --      модели цели (тот же приём, что BringPlayer) —
-                                --      кинематика вместо силы, приваренная далёкая деталь
-                                --      подъёму не мешает.
-                                --   3. ResetVelocity на все части — лечит NaN-скорости
-                                --      взорвавшейся сборки.
-                                --   4. Teleport по руту — прямой дубль записи.
-                                -- ============================================================
-                                Hub.ForceLiftTarget = function(character, rootPart, holdPoint, humanoid)
-                                        if not (character and character.Parent and rootPart and rootPart.Parent and holdPoint) then
-                                                return false
-                                        end
-                                        
-                                        -- 1) Граб-клейм: без PartOwner наши CFrame-записи не
-                                        --    реплицируются. SNO сам спамит Grab и ждёт метку.
-                                        if not Hub.IsPartOwner(rootPart) then
-                                                task.spawn(Hub.SNO, rootPart, 0.2)
-                                        end
-                                        
-                                        -- 2) Точка подъёма (Vector3 или CFrame)
-                                        local targetCF = holdPoint
-                                        if typeof(targetCF) == "Vector3" then
-                                                targetCF = CFrame.new(targetCF)
-                                        end
-                                        
-                                        -- 3) Кинематический подъём всей модели (как BringPlayer):
-                                        --    двигаем корнем, поза модели сохраняется. Если рут
-                                        --    уже NaN (физика взорвалась) — PivotTo пропускаем,
-                                        --    рут вылечит прямая запись ниже.
-                                        pcall(function()
-                                                local rootCF = rootPart.CFrame
-                                                local rootPos = rootCF.Position
-                                                if rootPos.X == rootPos.X and rootPos.Y == rootPos.Y and rootPos.Z == rootPos.Z then
-                                                        Hub.PivotTo(character, targetCF * rootCF:Inverse() * character:GetPivot())
-                                                end
-                                        end)
-                                        
-                                        -- 4) Обнуляем скорости всех частей (лечит NaN) и
-                                        --    дублируем подъём прямой записью по руту.
-                                        pcall(function()
-                                                for _, part in ipairs(character:QueryDescendants("BasePart")) do
-                                                        if part.Parent then
-                                                                Hub.ResetVelocity(part)
-                                                        end
-                                                end
-                                        end)
-                                        
-                                        pcall(Hub.Teleport, rootPart, targetCF)
-                                        return true
-                                end
                                 Hub.Ragdoll = function(obj52)
                                         if not obj52 or not obj52.Parent or State.States.Ragdolling then
                                                 return
@@ -30633,14 +30544,17 @@ end
                                 local miscVar914 = false
                                 local miscVar915 = false
                                 local miscVar916 = false
-                                local ShaderState = { Materials = true, Textures = true, Reflections = true, Shadows = true }
-
+                                local ShaderState = { Materials = true, Textures = true, Reflections = true, Shadows = true, Particles = true, Meshes = true, Accessories = true, Lighting = true, Quality = true, Collisions = true, HumanoidAnim = true, Technology = true, Materials2022 = true, Environment = true, Highlights = true, Terrain = true, MeshDetail = true, HumanoidDisplay = true, FloatingUI = true }
+                                local savedQualityLevel
+                                local savedMeshPartDetail
+                                local savedTextureDetail
+                                
                                 local function miscHelper147(value423, value424, value425)
                                         local miscVar912 = value423[value424]
                                         if miscVar912 == value425 then
                                                 return
                                         end
-
+                                        
                                         if not pcall(function()
                                                 value423[value424] = value425
                                         end) then
@@ -30649,118 +30563,263 @@ end
                                         Runtime[value423] = Runtime[value423] or {}
                                         Runtime[value423][value424] = Runtime[value423][value424] or { miscVar912, value425 }
                                 end
-
+                                
                                 local function miscHelper148(value422)
                                         if not miscVar913 then
                                                 return
                                         end
-
+                                        
+                                        local className = value422.ClassName
+                                        
+                                        if ShaderState.Highlights and value422:IsA("Highlight") then
+                                                miscHelper147(value422, "Enabled", false)
+                                                return
+                                        end
+                                        
+                                        if ShaderState.FloatingUI and (value422:IsA("BillboardGui") or value422:IsA("SurfaceGui")) then
+                                                miscHelper147(value422, "Enabled", false)
+                                                return
+                                        end
+                                        
+                                        if ShaderState.Particles then
+                                                if className == "ParticleEmitter" or className == "Trail" or className == "Beam" or className == "Fire" or className == "Smoke" or className == "Sparkles" or className == "Explosion" then
+                                                        miscHelper147(value422, "Enabled", false)
+                                                        return
+                                                end
+                                        end
+                                        
                                         if value422:IsA("BasePart") and not value422:IsA("Terrain") then
                                                 if ShaderState.Materials and value422.Material ~= Enum.Material.ForceField then
                                                         miscHelper147(value422, "Material", Enum.Material.SmoothPlastic)
                                                         miscHelper147(value422, "MaterialVariant", "")
                                                 end
-
+                                                
                                                 if ShaderState.Reflections then
                                                         miscHelper147(value422, "Reflectance", 0)
                                                 end
-
+                                                
                                                 if ShaderState.Shadows then
                                                         miscHelper147(value422, "CastShadow", false)
                                                 end
-
+                                                
                                                 if ShaderState.Textures and value422:IsA("MeshPart") then
                                                         miscHelper147(value422, "TextureID", "")
+                                                end
+                                                
+                                                if ShaderState.Collisions then
+                                                        if className ~= "HumanoidRootPart" and className ~= "Torso" and className ~= "Head" and className ~= "UpperTorso" and className ~= "LowerTorso" then
+                                                                miscHelper147(value422, "CanCollide", false)
+                                                                miscHelper147(value422, "CanTouch", false)
+                                                                miscHelper147(value422, "CanQuery", false)
+                                                        end
                                                 end
                                         elseif ShaderState.Textures and (value422:IsA("Decal") or value422:IsA("Texture")) then
                                                 miscHelper147(value422, "Transparency", 1)
                                         elseif ShaderState.Textures and value422:IsA("SpecialMesh") then
                                                 miscHelper147(value422, "TextureId", "")
+                                                if ShaderState.Meshes then
+                                                        miscHelper147(value422, "Scale", Vector3.new(0, 0, 0))
+                                                        miscHelper147(value422, "Offset", Vector3.new(0, 0, 0))
+                                                end
+                                        elseif ShaderState.Accessories then
+                                                if value422:IsA("Accessory") or value422:IsA("Hat") then
+                                                        local handle = value422:FindFirstChild("Handle")
+                                                        if handle then
+                                                                miscHelper147(handle, "Transparency", 1)
+                                                                miscHelper147(handle, "CanCollide", false)
+                                                                miscHelper147(handle, "CanQuery", false)
+                                                        end
+                                                elseif value422:IsA("Shirt") or value422:IsA("Pants") or value422:IsA("ShirtGraphic") or value422:IsA("BodyColors") then
+                                                        miscHelper147(value422, "Transparency", 1)
+                                                end
+                                        end
+                                        
+                                        if ShaderState.HumanoidDisplay and value422:IsA("Humanoid") then
+                                                miscHelper147(value422, "DisplayDistanceType", Enum.HumanoidDisplayDistanceType.None)
+                                        end
+                                        
+                                        if ShaderState.HumanoidAnim and className == "Humanoid" and value422.Parent and value422.Parent ~= game:GetService("Players").LocalPlayer.Character then
+                                                local animate = value422.Parent:FindFirstChild("Animate")
+                                                if animate then
+                                                        miscHelper147(animate, "Disabled", true)
+                                                end
                                         end
                                 end
-
+                                
+                                local function applyLightingAndQuality()
+                                        if ShaderState.Lighting then
+                                                miscHelper147(Lighting, "GlobalShadows", false)
+                                                miscHelper147(Lighting, "FogEnd", 1e9)
+                                                miscHelper147(Lighting, "FogStart", 0)
+                                                
+                                                for _, inst in ipairs(Lighting:GetChildren()) do
+                                                        local cn = inst.ClassName
+                                                        if cn == "ColorCorrectionEffect" or cn == "BloomEffect" or cn == "SunRaysEffect" or cn == "DepthOfFieldEffect" or cn == "BlurEffect" or cn == "GarbageBlurEffect" or cn == "Atmosphere" or cn == "Sky" then
+                                                                miscHelper147(inst, "Enabled", false)
+                                                        end
+                                                end
+                                        end
+                                        
+                                        if ShaderState.Technology then
+                                                miscHelper147(Lighting, "Technology", Enum.Technology.Compatibility)
+                                        end
+                                        
+                                        if ShaderState.Environment then
+                                                miscHelper147(Lighting, "EnvironmentDiffuseScale", 0)
+                                                miscHelper147(Lighting, "EnvironmentSpecularScale", 0)
+                                        end
+                                        
+                                        if ShaderState.Materials2022 then
+                                                pcall(function()
+                                                        local ms = game:GetService("MaterialService")
+                                                        miscHelper147(ms, "Use2022Materials", false)
+                                                end)
+                                        end
+                                        
+                                        if ShaderState.Terrain then
+                                                pcall(function()
+                                                        local terrain = workspace:FindFirstChildOfClass("Terrain")
+                                                        if terrain then
+                                                                miscHelper147(terrain, "Decoration", false)
+                                                                for _, c in ipairs(terrain:GetChildren()) do
+                                                                        if c:IsA("Clouds") then
+                                                                                miscHelper147(c, "Enabled", false)
+                                                                        end
+                                                                end
+                                                        end
+                                                end)
+                                        end
+                                        
+                                        if ShaderState.Quality then
+                                                if savedQualityLevel == nil then
+                                                        pcall(function()
+                                                                savedQualityLevel = settings().Rendering.QualityLevel
+                                                        end)
+                                                end
+                                                pcall(function()
+                                                        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+                                                end)
+                                        end
+                                        
+                                        if ShaderState.MeshDetail then
+                                                if savedMeshPartDetail == nil then
+                                                        pcall(function()
+                                                                savedMeshPartDetail = settings().Rendering.MeshPartDetail
+                                                        end)
+                                                end
+                                                if savedTextureDetail == nil then
+                                                        pcall(function()
+                                                                savedTextureDetail = settings().Rendering.TextureDetail
+                                                        end)
+                                                end
+                                                pcall(function()
+                                                        settings().Rendering.MeshPartDetail = Enum.MeshPartDetail.Level01
+                                                end)
+                                                pcall(function()
+                                                        settings().Rendering.TextureDetail = Enum.TextureDetail.Level01
+                                                end)
+                                        end
+                                end
+                                
                                 Hub.SetBoostFPS = function(value421)
                                         miscVar913 = value421 and not miscFlag3
                                         local setBoostFPSVar = miscVar915
                                         local setBoostFPSVar2
-
+                                        
                                         if miscVar915 then
                                                 setBoostFPSVar2 = setBoostFPSVar
                                         else
                                                 setBoostFPSVar2 = miscVar913 == miscVar914 and not miscVar916
                                         end
-
+                                        
                                         if setBoostFPSVar2 then
                                                 return
                                         end
                                         miscVar915 = true
-
+                                        
                                         task.spawn(function()
-                                                while true do
-                                                        local now3 = os.clock()
-
-                                                        if miscVar913 and not miscVar914 then
-                                                                miscVar914 = true
-                                                                miscVar916 = false
-
-                                                                if ShaderState.Shadows then
-                                                                        miscHelper147(Lighting, "GlobalShadows", false)
-                                                                end
-
-                                                                Hub.SetRuntimeConnection("BoostFPSAdded", workspace.DescendantAdded, true, miscHelper148)
-
-                                                                for _, item417 in workspace:QueryDescendants("BasePart, Decal, Texture, SpecialMesh") do
-                                                                        if miscVar913 then
+                                                pcall(function()
+                                                        while true do
+                                                                local now3 = os.clock()
+                                                                
+                                                                if miscVar913 and not miscVar914 then
+                                                                        miscVar914 = true
+                                                                        miscVar916 = false
+                                                                        
+                                                                        applyLightingAndQuality()
+                                                                        
+                                                                        Hub.SetRuntimeConnection("BoostFPSAdded", workspace.DescendantAdded, true, miscHelper148)
+                                                                        
+                                                                        for _, item417 in workspace:QueryDescendants("BasePart, Decal, Texture, SpecialMesh, ParticleEmitter, Trail, Beam, Fire, Smoke, Sparkles, Accessory, Hat, Shirt, Pants, ShirtGraphic, BodyColors, Humanoid, Highlight, BillboardGui, SurfaceGui") do
+                                                                                if not miscVar913 then
+                                                                                        break
+                                                                                end
                                                                                 miscHelper148(item417)
-
+                                                                                
                                                                                 if os.clock() - now3 > 0.004 then
                                                                                         task.wait()
                                                                                         now3 = os.clock()
                                                                                 end
-
-                                                                                continue
                                                                         end
-
-                                                                        break
-                                                                end
-                                                        else
-                                                                Hub.SetRuntimeConnection("BoostFPSAdded", nil, false)
-
-                                                                for k, item415 in Runtime, nil, nil do
-                                                                        if k.Parent then
-                                                                                for k2, item413 in item415, nil, nil do
-                                                                                        if k[k2] == item413[2] then
-                                                                                                pcall(function()
-                                                                                                        k[k2] = item413[1]
-                                                                                                end)
+                                                                else
+                                                                        Hub.SetRuntimeConnection("BoostFPSAdded", nil, false)
+                                                                        
+                                                                        for k, item415 in Runtime, nil, nil do
+                                                                                if k.Parent then
+                                                                                        for k2, item413 in item415, nil, nil do
+                                                                                                if k[k2] == item413[2] then
+                                                                                                        pcall(function()
+                                                                                                                k[k2] = item413[1]
+                                                                                                        end)
+                                                                                                end
                                                                                         end
                                                                                 end
+                                                                                
+                                                                                if not miscFlag3 and os.clock() - now3 > 0.004 then
+                                                                                        task.wait()
+                                                                                        now3 = os.clock()
+                                                                                end
                                                                         end
-
-                                                                        if not miscFlag3 and os.clock() - now3 > 0.004 then
-                                                                                task.wait()
-                                                                                now3 = os.clock()
+                                                                        
+                                                                        table.clear(Runtime)
+                                                                        
+                                                                        if savedQualityLevel ~= nil then
+                                                                                pcall(function()
+                                                                                        settings().Rendering.QualityLevel = savedQualityLevel
+                                                                                end)
+                                                                                savedQualityLevel = nil
+                                                                        end
+                                                                        
+                                                                        if savedMeshPartDetail ~= nil then
+                                                                                pcall(function()
+                                                                                        settings().Rendering.MeshPartDetail = savedMeshPartDetail
+                                                                                end)
+                                                                                savedMeshPartDetail = nil
+                                                                        end
+                                                                        
+                                                                        if savedTextureDetail ~= nil then
+                                                                                pcall(function()
+                                                                                        settings().Rendering.TextureDetail = savedTextureDetail
+                                                                                end)
+                                                                                savedTextureDetail = nil
+                                                                        end
+                                                                        
+                                                                        miscVar914 = false
+                                                                        
+                                                                        if not miscVar913 then
+                                                                                miscVar916 = false
                                                                         end
                                                                 end
-
-                                                                table.clear(Runtime)
-                                                                miscVar914 = false
-
-                                                                if not miscVar913 then
-                                                                        miscVar916 = false
+                                                                
+                                                                if (miscVar913 == miscVar914 and not miscVar916) then
+                                                                        break
                                                                 end
                                                         end
-
-                                                        if not (miscVar913 == miscVar914 and not miscVar916) then
-                                                                continue
-                                                        end
-                                                        break
-                                                end
-
+                                                end)
                                                 miscVar915 = false
                                         end)
                                 end
-
+                                
                                 Hub.SetBoostFPSOptions = function(value420)
                                         ShaderState = value420
                                         miscVar916 = miscVar913
@@ -31188,7 +31247,7 @@ end
                                                                 end)
                                                         end
 
-                                                        if not (spawnToyVar6 or tick() - now3 > 2.6) then
+                                                        if not (spawnToyVar6 or tick() - now3 > 1.3) then
                                                                 continue
                                                         end
                                                         break
@@ -35586,7 +35645,7 @@ Hub.SpawnCoconutForms = function()
                                                         while true do
                                                                 obj26:Sit(health44)
                                                                 notifyHelper31()
-                                                                if not (removeGucciVar7 or tick() - now3 > 2 or not obj26.Parent or health44.Health <= 0 or miscFlag3) then
+                                                                if not (removeGucciVar7 or tick() - now3 > 0.5 or not obj26.Parent or health44.Health <= 0 or miscFlag3) then
                                                                         continue
                                                                 end
                                                                 break
@@ -35597,7 +35656,7 @@ Hub.SpawnCoconutForms = function()
                                                         if removeGucciVar7 then
                                                                 local now4 = tick()
 
-                                                                while not removeGucciVar8 and not miscFlag3 and childAdded.Parent and health44.Health > 0 and tick() - now4 < 2 do
+                                                                while not removeGucciVar8 and not miscFlag3 and childAdded.Parent and health44.Health > 0 and tick() - now4 < 0.5 do
                                                                         task.wait()
                                                                 end
                                                         end
@@ -41028,7 +41087,13 @@ Escape Timer: %*]]
                         local identityCFrame = CFrame.new()
 
                         local function miscHelper65(value191, value192)
-                                if not value191 or not Config.EKI then
+                                if not value191 then
+                                        return
+                                end
+
+                                -- [EKI] применение скрытого свойства — только при включённом EKI;
+                                -- сброс (nil) выполняется всегда, чтобы свойство не висело на жертве
+                                if value192 ~= nil and not Config.EKI then
                                         return
                                 end
 
@@ -41038,207 +41103,89 @@ Escape Timer: %*]]
                         end
 
                         local ekiHold = {}
-                        local alignKickState = {}
-                        local ekiHoldState = {} -- [player] = время старта фазы удержания
-local ekiForceLiftAt = {} -- [player] = время последнего Force Lift
-local ekiVelAt = {} -- [player] = время последнего обнуления скоростей
-local ekiOwnAt = {} -- [player] = время последнего SNO-клейма владения
+                        local ekiHoldStart = {}
+                        local ekiApplied = {}
+                        local experimentalKickState = {}
 
-                        -- Луч вниз от корня цели: ничего не нашли — цель не на земле
-                        -- (идёт удержание, а не лежит на земле после неудачной притяжки).
-                        local ekiGroundRayParams = RaycastParams.new()
-                        ekiGroundRayParams.FilterType = Enum.RaycastFilterType.Exclude
-                        ekiGroundRayParams.IgnoreWater = true
+                        -- [EKI] Experimental Kick Improvements [BETA]: функции вызываются ТОЛЬКО
+                        -- в фазе удержания (Methods -> Kick): цель реально стоит в точке удержания y4.
+                        -- Если притянуть не удалось и цель осталась на земле — функции не вызываются.
+                        -- При начале удержания EKI не срабатывает мгновенно: ждём EKI_HOLD_DELAY.
+                        local EKI_HOLD_DELAY = 0.28
+                        local EKI_HOLD_RADIUS = 6
 
-                        local function ekiIsAirborne(rootPart)
-                                if not (rootPart and rootPart.Parent) then
-                                        return false
+                        local function ResetEKI(player, root)
+                                ekiHoldStart[player] = nil
+                                ekiHold[player] = nil
+
+                                if ekiApplied[player] then
+                                        ekiApplied[player] = nil
+
+                                        if root and root.Parent then
+                                                miscHelper65(root, nil)
+                                        end
                                 end
-
-                                pcall(function()
-                                        ekiGroundRayParams.FilterDescendantsInstances = { rootPart.Parent }
-                                end)
-
-                                local hit = nil
-                                local ok = pcall(function()
-                                        hit = workspace:Raycast(rootPart.Position, Vector3.new(0, -4, 0), ekiGroundRayParams)
-                                end)
-
-                                if not ok then
-                                        return true
-                                end
-
-                                return hit == nil
                         end
 
-                        -- ============================================================
-                        -- EXPERIMENTAL KICK IMPROVEMENTS [BETA]
-                        -- Все EKI-функции вызываются ТОЛЬКО когда открыт гейт фазы
-                        -- удержания (в цикле кика ниже) и только спустя Config.EKIDelay
-                        -- (0.28) после НАЧАЛА удержания — не мгновенно.
-                        -- Каждая часть включается/выключается во вкладке Experimental.
-                        -- ============================================================
-
-                        local function runEKI(player, character, rootPart, humanoid, ready)
-                                if not ready then
+                        -- [EKI] вызов функций улучшений: только когда цель реально удерживается
+                        -- в точке holdPos (фаза удержания), и не раньше EKI_HOLD_DELAY после её начала
+                        local function UpdateEKI(player, root, holdPos, interval)
+                                if not Config.EKI then
+                                        ResetEKI(player, root)
                                         return
                                 end
 
-                                if not (rootPart and rootPart.Parent and humanoid and humanoid.Parent) then
+                                if not (root and root.Parent and (root.Position - holdPos).Magnitude < EKI_HOLD_RADIUS) then
+                                        ResetEKI(player, root)
                                         return
                                 end
 
-                                -- 1) Полная блокировка Humanoid: цель вообще ничего
-                                --    не может сделать (PlatformStand и компания).
-                                pcall(function()
-                                        if Config.EKIPlatformStand then
-                                                humanoid.PlatformStand = true
-                                        end
+                                local now = os.clock()
 
-                                        if Config.EKIAutoRotate then
-                                                humanoid.AutoRotate = false
-                                        end
-
-                                        if Config.EKISitLock then
-                                                humanoid.Sit = true
-                                        end
-
-                                        if Config.EKIZeroMovement then
-                                                humanoid.WalkSpeed = 0
-                                                humanoid.JumpPower = 0
-                                                humanoid.JumpHeight = 0
-                                        end
-
-                                        if Config.EKIAutoJumpOff then
-                                                humanoid.AutoJumpEnabled = false
-                                        end
-
-                                        if Config.EKIMaxSlopeZero then
-                                                humanoid.MaxSlopeAngle = 0
-                                        end
-
-                                        if Config.EKIStateMachineOff then
-                                                humanoid.EvaluateStateMachine = false
-                                        end
-
-                                        if Config.EKIUnequipTools then
-                                                humanoid:UnequipTools()
-                                        end
-                                end)
-
-                                if Config.EKIPhysicsState then
-                                        pcall(function()
-                                                humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
-                                                humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-                                        end)
+                                if not ekiHoldStart[player] then
+                                        ekiHoldStart[player] = now
+                                        return
                                 end
 
-                                if Config.EKIDisableStates then
-                                        for _, stateName in ipairs({ "Jumping", "Climbing", "GettingUp", "FallingDown", "Seated", "Swimming", "Freefall", "StrafingNoPhysics" }) do
-                                                pcall(function()
-                                                        humanoid:SetStateEnabled(Enum.HumanoidStateType[stateName], false)
-                                                end)
-                                        end
+                                if now - ekiHoldStart[player] < EKI_HOLD_DELAY then
+                                        return
                                 end
 
-                                if Config.EKIFreezeAnimations then
-                                        pcall(function()
-                                                for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-                                                        track:AdjustSpeed(0)
-                                                end
-                                        end)
+                                if (ekiHold[player] or 0) > now then
+                                        return
                                 end
 
-                                -- 1.5) Модель цели: Touch-механики и сиденье-якорь.
-                                if Config.EKITouchOff then
-                                        pcall(function()
-                                                for _, part in ipairs(character:GetDescendants()) do
-                                                        if part:IsA("BasePart") then
-                                                                if part.CanTouch then
-                                                                        part.CanTouch = false
-                                                                end
-                                                                if part.CanQuery then
-                                                                        part.CanQuery = false
-                                                                end
-                                                        end
-                                                end
-                                        end)
+                                ekiHold[player] = now + (interval or 0.3)
+                                ekiApplied[player] = true
+                                miscHelper65(root, root)
+
+                                if typeof(sethiddenproperty) == "function" then
+                                        pcall(sethiddenproperty, root, "NetworkIsSleeping", false)
                                 end
-
-                                if Config.EKIBreakSeatWeld then
-                                        pcall(function()
-                                                local seatPart = humanoid.SeatPart
-                                                if seatPart and seatPart.Parent then
-                                                        local seatWeld = seatPart:FindFirstChild("SeatWeld")
-                                                        if seatWeld and seatWeld:IsA("Weld") and seatWeld.Enabled then
-                                                                seatWeld.Enabled = false
-                                                        end
-                                                end
-                                                for _, inst in ipairs(character:GetDescendants()) do
-                                                        if inst:IsA("Weld") and inst.Name == "SeatWeld" and inst.Enabled then
-                                                                inst.Enabled = false
-                                                        end
-                                                end
-                                        end)
-                                end
-
-                                -- 1.6) Импульс: цель не может набрать скорость и вырваться.
-                                if Config.EKIZeroVelocity then
-                                        local nowVel = os.clock()
-                                        if (ekiVelAt[player] or 0) <= nowVel then
-                                                ekiVelAt[player] = nowVel + math.max(0.02, (Config.EKIRemoteInterval or 0.3) * 0.5)
-                                                pcall(function()
-                                                        rootPart.AssemblyLinearVelocity = Vector3.zero
-                                                        rootPart.AssemblyAngularVelocity = Vector3.zero
-                                                        Hub.ResetVelocity(rootPart)
-                                                end)
-                                        end
-                                end
-
-                                -- 1.7) Владение: пока мы PartOwner, все наши записи реплицируются.
-                                if Config.EKIKeepOwnership then
-                                        local nowOwn = os.clock()
-                                        if (ekiOwnAt[player] or 0) <= nowOwn then
-                                                ekiOwnAt[player] = nowOwn + math.max(0.25, Config.EKIRemoteInterval or 0.3)
-                                                if not Hub.IsPartOwner(rootPart) then
-                                                        task.spawn(Hub.SNO, rootPart, 0.2)
-                                                end
-                                        end
-                                end
-
-                                -- 2) Экспериментальная физика (sethiddenproperty):
-                                --    PhysicsRepRootPart + NetworkIsSleeping = false,
-                                --    с настраиваемой скоростью отправки (ремоутов).
-                                if Config.EKIPhysicsRep and typeof(sethiddenproperty) == "function" then
-                                        local nowEKI = os.clock()
-
-                                        if (ekiHold[player] or 0) <= nowEKI then
-                                                ekiHold[player] = nowEKI + (Config.EKIRemoteInterval or 0.3)
-                                                miscHelper65(rootPart, rootPart)
-
-                                                if Config.EKINetworkSleepOff then
-                                                        pcall(sethiddenproperty, rootPart, "NetworkIsSleeping", false)
-                                                end
-                                        end
-                                end
-
                         end
 
-
-                        local function StopAlignKick(player)
-                                local st = player and alignKickState[player]
+                        local function StopExperimentalKick(player)
+                                local st = player and experimentalKickState[player]
 
                                 if not st then
                                         return
                                 end
 
-                                alignKickState[player] = nil
+                                experimentalKickState[player] = nil
+                                ekiHoldStart[player] = nil
+                                ekiHold[player] = nil
 
-                                for _, obj in ipairs({ st.Align, st.Rot, st.Att0, st.Att1 }) do
-                                        if obj then
-                                                pcall(function()
-                                                        obj:Destroy()
-                                                end)
+                                local root = st.Root
+
+                                if root and root.Parent then
+                                        for _, name in ipairs({ "KickAP", "KickAO" }) do
+                                                local bodyMover = root:FindFirstChild(name)
+
+                                                if bodyMover then
+                                                        pcall(function()
+                                                                bodyMover:Destroy()
+                                                        end)
+                                                end
                                         end
                                 end
 
@@ -41274,24 +41221,14 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                                 if not value190 then
                                         return
                                 end
-                                StopAlignKick(value190)
-                                ekiHold[value190] = nil
-                                ekiHoldState[value190] = nil
-                                ekiForceLiftAt[value190] = nil
                                 local miscVar234, findFirstChild4, findFirstChild5 = Hub.Char(value190)
+                                StopExperimentalKick(value190)
+                                ResetEKI(value190, findFirstChild4)
 
                                 if findFirstChild4 then
                                         local kickAP = findFirstChild4:FindFirstChild("KickAP")
                                         local kickAO = findFirstChild4:FindFirstChild("KickAO")
                                         local weldHRP = findFirstChild4:FindFirstChild("WeldHRP")
-
-                                        for _, legacyName in ipairs({ "LHKickAlign", "LHKickRot", "LHKickAtt0" }) do
-                                                local legacyObj = findFirstChild4:FindFirstChild(legacyName)
-
-                                                if legacyObj then
-                                                        legacyObj:Destroy()
-                                                end
-                                        end
 
                                         if kickAP then
                                                 kickAP:Destroy()
@@ -41376,53 +41313,180 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                                                                         else
                                                                                 local y4 = miscHelper62(miscVar219, i, #ShaderState)
 
-                                                                                local expMode = Options.NKDelayMode == "Experimental"
+                                                                                local experimentalMode = Options.NKDelayMode == "Experimental"
 
-                                                                                -- ============================================================
-                                                                                -- EKI: ГЕЙТ ПО ФАЗЕ УДЕРЖАНИЯ
-                                                                                -- Экспериментальные функции вызываются ТОЛЬКО когда цель
-                                                                                -- реально удерживается киком на месте (фаза удержания):
-                                                                                --   * цель в радиусе EKIHoldRadius от точки удержания y4
-                                                                                --   * притяжка состоялась (цель не дальше 33 стадов от нас)
-                                                                                --   * граб-линия на нас (PartOwner = localPlayer)
-                                                                                --   * цель не на земле (луч вниз не находит пола)
-                                                                                -- Если удержание сорвалось (в т.ч. притянуть не удалось и
-                                                                                -- цель лежит на земле) — гейт закрыт, таймер сброшен,
-                                                                                -- EKI-функции не вызываются вообще.
-                                                                                -- ============================================================
-                                                                                local hs = ekiHoldState[item159]
-                                                                                local inHold = false
+                                                                                if experimentalMode then
+                                                                                        -- [Experimental] удержание — BodyPosition "KickAP" + BodyGyro "KickAO",
+                                                                                        -- создание и обновление идентичны другим кикам; дополнительно замораживаем
+                                                                                        -- жертву и перевзятываем граб каждый кадр
+                                                                                        local st = experimentalKickState[item159]
 
-                                                                                if Config.EKIUseHoldGate then
-                                                                                        inHold = parent19.Parent ~= nil
-                                                                                        and (parent19.Position - y4).Magnitude <= (Config.EKIHoldRadius or 10)
-                                                                                        and Hub.GetMagnitude(miscVar219, parent19) <= 33
-                                                                                        and Hub.IsPartOwner(parent19)
-                                                                                        and (not Config.EKIGroundCheck or ekiIsAirborne(parent19))
-                                                                                else
-                                                                                        inHold = true
-                                                                                end
+                                                                                        if st and (st.Root ~= parent19 or not parent19.Parent) then
+                                                                                                StopExperimentalKick(item159)
+                                                                                                st = nil
+                                                                                        end
 
-                                                                                if inHold then
-                                                                                        if not hs then
-                                                                                                hs = os.clock()
-                                                                                                ekiHoldState[item159] = hs
+                                                                                        if not st then
+                                                                                                st = {
+                                                                                                        Root = parent19,
+                                                                                                        Hum = health6,
+                                                                                                        WalkSpeed = health6.WalkSpeed,
+                                                                                                        JumpPower = health6.JumpPower,
+                                                                                                        JumpHeight = health6.JumpHeight,
+                                                                                                        MaxSlopeAngle = health6.MaxSlopeAngle,
+                                                                                                }
+                                                                                                experimentalKickState[item159] = st
+
+                                                                                                Hub.ToggleCollisions(findFirstChild3, false)
+                                                                                                Hub.ResetVelocity(parent19)
+
+                                                                                                pcall(function()
+                                                                                                        health6.EvaluateStateMachine = false
+                                                                                                        health6.AutoJumpEnabled = false
+                                                                                                        health6.MaxSlopeAngle = 0
+                                                                                                end)
+
+                                                                                                pcall(function()
+                                                                                                        health6:UnequipTools()
+                                                                                                end)
+
+                                                                                                for _, stateName in ipairs({ "Jumping", "Climbing", "GettingUp", "FallingDown", "Seated", "Swimming", "Freefall", "StrafingNoPhysics" }) do
+                                                                                                        pcall(function()
+                                                                                                                health6:SetStateEnabled(Enum.HumanoidStateType[stateName], false)
+                                                                                                        end)
+                                                                                                end
+                                                                                        end
+
+                                                                                        local kickAP = parent19:FindFirstChild("KickAP")
+                                                                                        local kickAO = parent19:FindFirstChild("KickAO")
+
+                                                                                        if not kickAP or not kickAO then
+                                                                                                if kickAP then
+                                                                                                        kickAP:Destroy()
+                                                                                                end
+
+                                                                                                if kickAO then
+                                                                                                        kickAO:Destroy()
+                                                                                                end
+
+                                                                                                kickAP = Instance.new("BodyPosition")
+                                                                                                local bodyGyro = Instance.new("BodyGyro")
+                                                                                                kickAP.D = 200
+                                                                                                kickAP.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                                                                                                kickAP.Position = y4
+                                                                                                kickAP.Parent = parent19
+                                                                                                bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                                                                                                bodyGyro.D = 200
+                                                                                                bodyGyro.CFrame = CFrame.new()
+                                                                                                bodyGyro.Parent = parent19
+                                                                                                kickAP.Name = "KickAP"
+                                                                                                bodyGyro.Name = "KickAO"
+                                                                                        end
+
+                                                                                        local weldHRP = parent19:FindFirstChild("WeldHRP")
+
+                                                                                        if weldHRP then
+                                                                                                weldHRP.Enabled = false
+                                                                                        end
+
+                                                                                        kickAP.Position = y4
+
+                                                                                        if kickAP.MaxForce ~= hugeForce then
+                                                                                                kickAP.MaxForce = hugeForce
+                                                                                        end
+
+                                                                                        if kickAO then
+                                                                                                if kickAO.MaxTorque ~= hugeForce then
+                                                                                                        kickAO.MaxTorque = hugeForce
+                                                                                                end
+
+                                                                                                if kickAO.CFrame ~= identityCFrame then
+                                                                                                        kickAO.CFrame = identityCFrame
+                                                                                                end
+                                                                                        end
+
+                                                                                        pcall(function()
+                                                                                                health6.PlatformStand = true
+                                                                                                health6.AutoRotate = false
+                                                                                                health6.Sit = false
+                                                                                                health6.WalkSpeed = 0
+                                                                                                health6.JumpPower = 0
+                                                                                                health6.JumpHeight = 0
+                                                                                        end)
+
+                                                                                        pcall(function()
+                                                                                                health6:ChangeState(Enum.HumanoidStateType.Physics)
+                                                                                        end)
+
+			if Hub.GetMagnitude(miscVar219, parent19) > 33 and Hub.SNO(parent19) then
+				Hub.Teleport(parent19, y4)
+                                                                                        end
+
+                                                                                        Hub.Grab(parent19)
+                                                                                        Hub.RNO(parent19)
+                                                                                        
+                                                                                        -- [Anti-Grab Bypass] контра анти-грабу цели: держим физику активной,
+                                                                                        -- убиваем escape-импульс, force-unragdoll, ре-дизейблим escape-состояния каждый кадр.
+                                                                                        -- Включается тогглом "Anti-Grab Bypass"; работает только в Experimental-режиме.
+                                                                                        if Config.AntiGrabBypass then
+                                                                                                if typeof(sethiddenproperty) == "function" then
+                                                                                                        pcall(sethiddenproperty, parent19, "NetworkIsSleeping", false)
+                                                                                                end
+                                                                                                
+                                                                                                Hub.ResetVelocity(parent19)
+                                                                                                
+                                                                                                pcall(function()
+                                                                                                        local rag = health6 and health6:FindFirstChild("Ragdolled")
+                                                                                                        if rag and rag:IsA("BoolValue") and rag.Value then
+                                                                                                                rag.Value = false
+                                                                                                        end
+                                                                                                end)
+                                                                                                
+                                                                                                pcall(function()
+                                                                                                        for _, stateName in ipairs({ "Jumping", "Climbing", "GettingUp", "FallingDown", "Seated", "Swimming", "Freefall", "StrafingNoPhysics" }) do
+                                                                                                                health6:SetStateEnabled(Enum.HumanoidStateType[stateName], false)
+                                                                                                        end
+                                                                                                end)
+                                                                                        end
+
+                                                                                        if Hub.IsNetworkOwner(parent19) then
+                                                                                                local delta = y4 - parent19.Position
+
+                                                                                                if delta.Magnitude > 1.5 then
+                                                                                                        local servoVel = delta * 30
+
+                                                                                                        if servoVel.Magnitude > 2000 then
+                                                                                                                servoVel = servoVel.Unit * 2000
+                                                                                                        end
+
+                                                                                                        pcall(function()
+                                                                                                                parent19.AssemblyLinearVelocity = servoVel
+                                                                                                        end)
+                                                                                                end
+
+                                                                                                if parent19.Position.Y < y4.Y - 2 then
+                                                                                                        local partCF = parent19.CFrame
+                                                                                                        parent19.CFrame = CFrame.new(partCF.X, y4.Y, partCF.Z) * (partCF - partCF.Position)
+                                                                                                end
+                                                                                        end
+
+                                                                                        Hub.ToggleCollisions(findFirstChild3, false)
+                                                                                        Hub.RepositionLimbs(findFirstChild3, true)
+
+                                                                                        -- [EKI] функции улучшений — только в фазе удержания (цель в точке y4),
+                                                                                        -- не раньше чем через 0.28с после начала удержания (см. UpdateEKI)
+                                                                                        UpdateEKI(item159, parent19, y4, 0.3)
+
+                                                                                        if Config.RagdollInNK then
+                                                                                                task.spawn(Hub.Ragdoll, findFirstChild3)
+                                                                                        end
+
+                                                                                        if Config.DeleteShurInNK then
+                                                                                                task.spawn(Hub.RemoveSticky, findFirstChild3)
                                                                                         end
                                                                                 else
-                                                                                        ekiHoldState[item159] = nil
-                                                                                        hs = nil
-                                                                                end
+                                                                                        StopExperimentalKick(item159)
 
-                                                                                -- Не вызываем моментально: ждём Config.EKIDelay (0.28)
-                                                                                -- непрерывного удержания перед вызовом EKI-функций.
-                                                                                local ekiReady = Config.EKI and hs ~= nil and (os.clock() - hs) >= (Config.EKIDelay or 0.28)
-
-                                                                                if expMode then
-                                                                                        -- ============================================================
-                                                                                        -- EXPERIMENTAL: удержание BodyGyro + BodyPosition (KickAP /
-                                                                                        -- KickAO) — ИДЕНТИЧНО другим кикам скрипта. Никаких
-                                                                                        -- AlignPosition / AlignOrientation.
-                                                                                        -- ============================================================
                                                                                         local kickAP = parent19:FindFirstChild("KickAP")
                                                                                         local kickAO = parent19:FindFirstChild("KickAO")
                                                                                         local weldHRP = parent19:FindFirstChild("WeldHRP")
@@ -41434,14 +41498,6 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
 
                                                                                                 if kickAO then
                                                                                                         kickAO:Destroy()
-                                                                                                end
-
-                                                                                                for _, legacy in ipairs({ "LHKickAlign", "LHKickRot", "LHKickAtt0" }) do
-                                                                                                        local legacyObj = parent19:FindFirstChild(legacy)
-
-                                                                                                        if legacyObj then
-                                                                                                                legacyObj:Destroy()
-                                                                                                        end
                                                                                                 end
 
                                                                                                 kickAP = Instance.new("BodyPosition")
@@ -41478,21 +41534,23 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                                                                                                 end
                                                                                         end
 
+                                                                                        local miscVar199
+
                                                                                         if not (Hub.GetMagnitude(miscVar219, parent19) > 33) then
                                                                                                 Hub.Grab(parent19)
-                                                                                                Hub.RNO(parent19)
-                                                                                                -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
-                                                                                                -- бессилен против приваренной далёкой детали) — поднимаем её
-                                                                                                -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
-                                                                                                if Config.EKIForceLift then
-                                                                                                        local nowFL = os.clock()
-                                                                                                        if (ekiForceLiftAt[item159] or 0) <= nowFL then
-                                                                                                                ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
-                                                                                                                task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
-                                                                                                        end
+                                                                                                miscVar199 = Options.NKDelayMode == "Faster but worse" or not Options.NKDelayMode
+
+                                                                                                if miscVar199 then
+                                                                                                        task.delay(0.2, Hub.RNO, parent19)
+                                                                                                elseif Options.NKDelayMode == "Normal" then
+                                                                                                        task.spawn(function()
+                                                                                                                task.wait()
+                                                                                                                Hub.RNO(parent19)
+                                                                                                        end)
                                                                                                 end
 
-                                                                                                runEKI(item159, findFirstChild3, parent19, health6, ekiReady)
+                                                                                                -- [EKI] функции улучшений — только в фазе удержания, с задержкой 0.28с
+                                                                                                UpdateEKI(item159, parent19, y4, 0.6)
 
                                                                                                 if Config.RagdollInNK then
                                                                                                         task.spawn(Hub.Ragdoll, findFirstChild3)
@@ -41507,19 +41565,19 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                                                                                         elseif Hub.SNO(parent19) then
                                                                                                 Hub.Teleport(parent19, y4)
                                                                                                 Hub.Grab(parent19)
-                                                                                                Hub.RNO(parent19)
-                                                                                                -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
-                                                                                                -- бессилен против приваренной далёкой детали) — поднимаем её
-                                                                                                -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
-                                                                                                if Config.EKIForceLift then
-                                                                                                        local nowFL = os.clock()
-                                                                                                        if (ekiForceLiftAt[item159] or 0) <= nowFL then
-                                                                                                                ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
-                                                                                                                task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
-                                                                                                        end
+                                                                                                miscVar199 = Options.NKDelayMode == "Faster but worse" or not Options.NKDelayMode
+
+                                                                                                if miscVar199 then
+                                                                                                        task.delay(0.2, Hub.RNO, parent19)
+                                                                                                elseif Options.NKDelayMode == "Normal" then
+                                                                                                        task.spawn(function()
+                                                                                                                task.wait()
+                                                                                                                Hub.RNO(parent19)
+                                                                                                        end)
                                                                                                 end
 
-                                                                                                runEKI(item159, findFirstChild3, parent19, health6, ekiReady)
+                                                                                                -- [EKI] функции улучшений — только в фазе удержания, с задержкой 0.28с
+                                                                                                UpdateEKI(item159, parent19, y4, 0.6)
 
                                                                                                 if Config.RagdollInNK then
                                                                                                         task.spawn(Hub.Ragdoll, findFirstChild3)
@@ -41532,146 +41590,9 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                                                                                                 Hub.ToggleCollisions(findFirstChild3, false)
                                                                                                 Hub.RepositionLimbs(findFirstChild3, true)
                                                                                         else
-                                                                                                -- Притянуть не удалось — удержания нет,
-                                                                                                -- гейт закрыт и EKI полностью выключен.
-                                                                                                ekiHoldState[item159] = nil
-                                                                                                ekiHold[item159] = nil
-                                                                                                miscHelper65(parent19, nil)
+                                                                                                -- удержания нет (не притянули / потеряли владение) — EKI не вызываем
+                                                                                                ResetEKI(item159, parent19)
                                                                                         end
-                                                                                else
-                                                                                        StopAlignKick(item159)
-                                                                                local kickAP = parent19:FindFirstChild("KickAP")
-                                                                                local kickAO = parent19:FindFirstChild("KickAO")
-                                                                                local weldHRP = parent19:FindFirstChild("WeldHRP")
-
-                                                                                if not kickAP or not kickAO then
-                                                                                        if kickAP then
-                                                                                                kickAP:Destroy()
-                                                                                        end
-
-                                                                                        if kickAO then
-                                                                                                kickAO:Destroy()
-                                                                                        end
-
-                                                                                        kickAP = Instance.new("BodyPosition")
-                                                                                        local bodyGyro = Instance.new("BodyGyro")
-                                                                                        kickAP.D = 200
-                                                                                        kickAP.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                        kickAP.Position = y4
-                                                                                        kickAP.Parent = parent19
-                                                                                        bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-                                                                                        bodyGyro.D = 200
-                                                                                        bodyGyro.CFrame = CFrame.new()
-                                                                                        bodyGyro.Parent = parent19
-                                                                                        kickAP.Name = "KickAP"
-                                                                                        bodyGyro.Name = "KickAO"
-                                                                                end
-
-                                                                                if weldHRP then
-                                                                                        weldHRP.Enabled = false
-                                                                                end
-
-                                                                                kickAP.Position = y4
-                                                                                if kickAP.MaxForce ~= hugeForce then
-                                                                                        kickAP.MaxForce = hugeForce
-                                                                                end
-
-                                                                                if kickAO then
-                                                                                        if kickAO.MaxTorque ~= hugeForce then
-                                                                                                kickAO.MaxTorque = hugeForce
-                                                                                        end
-
-                                                                                        if kickAO.CFrame ~= identityCFrame then
-                                                                                                kickAO.CFrame = identityCFrame
-                                                                                        end
-                                                                                end
-
-                                                                                local miscVar199
-
-                                                                                if not (Hub.GetMagnitude(miscVar219, parent19) > 33) then
-                                                                                        Hub.Grab(parent19)
-                                                                                        -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
-                                                                                        -- бессилен против приваренной далёкой детали) — поднимаем её
-                                                                                        -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
-                                                                                        if Config.EKIForceLift then
-                                                                                                local nowFL = os.clock()
-                                                                                                if (ekiForceLiftAt[item159] or 0) <= nowFL then
-                                                                                                        ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
-                                                                                                        task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
-                                                                                                end
-                                                                                        end
-                                                                                        miscVar199 = Options.NKDelayMode == "Faster but worse" or not Options.NKDelayMode
-
-                                                                                        if miscVar199 then
-                                                                                                Hub.RNO(parent19)
-                                                                                        elseif Options.NKDelayMode == "Normal" then
-                                                                                                task.spawn(function()
-                                                                                                        task.wait()
-                                                                                                        Hub.RNO(parent19)
-                                                                                                end)
-                                                                                        end
-
-                                                                                        -- EKI: вызывается только на фазе удержания,
-                                                                                        -- спустя Config.EKIDelay (0.28) после его начала.
-                                                                                        runEKI(item159, findFirstChild3, parent19, health6, ekiReady)
-
-                                                                                        if Config.RagdollInNK then
-                                                                                                task.spawn(Hub.Ragdoll, findFirstChild3)
-                                                                                        end
-
-                                                                                        if Config.DeleteShurInNK then
-                                                                                                task.spawn(Hub.RemoveSticky, findFirstChild3)
-                                                                                        end
-
-                                                                                        Hub.ToggleCollisions(findFirstChild3, false)
-                                                                                        Hub.RepositionLimbs(findFirstChild3, true)
-
-                                                                                elseif Hub.SNO(parent19) then
-                                                                                        Hub.Teleport(parent19, y4)
-                                                                                        Hub.Grab(parent19)
-                                                                                        -- Force Lift: sticky-цель не поднимается физикой (BodyPosition
-                                                                                        -- бессилен против приваренной далёкой детали) — поднимаем её
-                                                                                        -- CFrame-записями прямо здесь, иначе гейт удержания не откроется.
-                                                                                        if Config.EKIForceLift then
-                                                                                                local nowFL = os.clock()
-                                                                                                if (ekiForceLiftAt[item159] or 0) <= nowFL then
-                                                                                                        ekiForceLiftAt[item159] = nowFL + (Config.EKIForceLiftInterval or 0.06)
-                                                                                                        task.spawn(Hub.ForceLiftTarget, findFirstChild3, parent19, y4, health6)
-                                                                                                end
-                                                                                        end
-                                                                                        miscVar199 = Options.NKDelayMode == "Faster but worse" or not Options.NKDelayMode
-
-                                                                                        if miscVar199 then
-                                                                                                Hub.RNO(parent19)
-                                                                                        elseif Options.NKDelayMode == "Normal" then
-                                                                                                task.spawn(function()
-                                                                                                        task.wait()
-                                                                                                        Hub.RNO(parent19)
-                                                                                                end)
-                                                                                        end
-
-                                                                                        -- EKI: вызывается только на фазе удержания,
-                                                                                        -- спустя Config.EKIDelay (0.28) после его начала.
-                                                                                        runEKI(item159, findFirstChild3, parent19, health6, ekiReady)
-
-                                                                                        if Config.RagdollInNK then
-                                                                                                task.spawn(Hub.Ragdoll, findFirstChild3)
-                                                                                        end
-
-                                                                                        if Config.DeleteShurInNK then
-                                                                                                task.spawn(Hub.RemoveSticky, findFirstChild3)
-                                                                                        end
-
-                                                                                        Hub.ToggleCollisions(findFirstChild3, false)
-                                                                                        Hub.RepositionLimbs(findFirstChild3, true)
-
-                                                                                else
-                                                                                        -- Притянуть не удалось — удержания нет,
-                                                                                        -- гейт закрыт и EKI полностью выключен.
-                                                                                        ekiHoldState[item159] = nil
-                                                                                        ekiHold[item159] = nil
-                                                                                        miscHelper65(parent19, nil)
-                                                                                end
                                                                                 end
                                                                         end
                                                                 end
@@ -41810,7 +41731,6 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                         Keybinds = mainFrame2:AddTab("<b>Keybinds</b>", "keyboard", "Keybinds you can press for specific action"),
                         Misc = mainFrame2:AddTab("<b>Misc</b>", "funnel", "Other things"),
                         Lists = mainFrame2:AddTab("<b>Lists</b>", "scroll-text", "Miscellaneous useful dropdowns"),
-                        Experimental = mainFrame2:AddTab("<b>Experimental</b>", "flask-conical", "Experimental Kick Improvements [BETA] settings"),
                         Settings = mainFrame2:AddTab("<b>Settings</b>", "settings", "GUI Settings"),
                 }
 
@@ -44462,7 +44382,7 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                         Multi = false,
                         Default = 1,
                         Text = "Delay Mode",
-                        Tooltip = "Experimental: improved kick with BodyGyro/BodyPosition hold (identical to the other kicks) + Experimental Kick Improvements. EKI functions fire ONLY in the hold phase and after the EKI Delay (0.28s) — see the Experimental tab.",
+                        Tooltip = "Experimental: holds the target with the same BodyPosition/BodyGyro (KickAP/KickAO) as the other kicks, freezes the victim and re-grabs every frame so the victim stays legit-grabbed and their auto-reset/auto-leave rarely gets a chance to fire. Both grab (SetNetworkOwner) and destroy-grab-line (RNO) remotes are fired every frame with no 0.2s delay, so the grab keeps refreshing and the victim can never slip out. Kick Improvements only run while the target is actually held in place, 0.28s after the hold starts.",
                         Callback = function(nkDelayMode)
                                 Options.NKDelayMode = nkDelayMode
                         end,
@@ -44488,11 +44408,24 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                         Text = "Experimental Kick Improvements [BETA]",
                         Risky = true,
                         Default = Config.EKI,
-                        Tooltip = "Improves the kick: hold-phase gating, 0.28s delay, full humanoid lockdown and sticky anti grab bypass. Fully configurable in the Experimental tab. Can get buggy and doesn't work on bad executors (needs sethiddenproperty).",
+                        Tooltip = "Improves the kick, but can get very buggy! This also doesn't work on bad executors. Functions only run while the target is actually held in place (hold phase), 0.28s after the hold starts.",
                         DisabledTooltip = "Your executor does not support this feature!",
                         Disabled = typeof(sethiddenproperty) ~= "function",
                         Callback = function(eki)
                                 Config.EKI = eki
+                        end,
+                })
+                
+                setupDependencies25:AddToggle("AntiGrabBypass", {
+                        Text = "Anti-Grab Bypass [BETA]",
+                        Risky = true,
+                        Default = false,
+                        Tooltip = "Counters the target's anti-grab so you can pull them even when they have a strong one. Only active in Experimental kick mode. Every frame it: keeps the target's physics awake (NetworkIsSleeping=false) so your grab forces apply, kills their escape velocity, force-unragdolls them so the grab weld stays valid, and re-disables their escape Humanoid states. On enable it also disables EndGrabEarly so the server can't cut your grab short.",
+                        Callback = function(antiGrabBypass)
+                                Config.AntiGrabBypass = antiGrabBypass
+                                if antiGrabBypass then
+                                        pcall(Hub.DisableEndGrabEarly)
+                                end
                         end,
                 })
 
@@ -44586,258 +44519,6 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
                                                 end
                                         end
                                 end
-                        end,
-                })
-        end
-
-        do
-                -- ============================================================
-                --  EXPERIMENTAL — полные настройки Experimental Kick
-                --  Improvements [BETA] (кик на BodyGyro/BodyPosition).
-                --  Всё отсюда применяется ТОЛЬКО на фазе удержания цели
-                --  и спустя «EKI Delay» секунд после начала удержания.
-                -- ============================================================
-                local Gate = Tabs.Experimental:AddLeftGroupbox("Gating & Delay", "timer")
-
-                Gate:AddToggle("EKIUseHoldGateT", {
-                        Text = "Hold Phase Gating",
-                        Default = true,
-                        Tooltip = "EKI functions run ONLY while the target is really being held by the kick: near the hold point, grab line on us and off the ground. If the pull failed (target lies on the ground) EKI never fires. Keep ON.",
-                        Callback = function(ekiUseHoldGate)
-                                Config.EKIUseHoldGate = ekiUseHoldGate
-                        end,
-                })
-
-                Gate:AddSlider("EKIDelayS", {
-                        Text = "EKI Delay",
-                        Default = 0.28,
-                        Min = 0,
-                        Max = 1,
-                        Rounding = 2,
-                        Compact = true,
-                        Suffix = "s",
-                        Tooltip = "How long the target must be continuously held before EKI functions fire. 0.28 is the best value.",
-                        Callback = function(ekiDelay)
-                                Config.EKIDelay = ekiDelay
-                        end,
-                })
-
-                Gate:AddSlider("EKIHoldRadiusS", {
-                        Text = "Hold Radius",
-                        Default = 10,
-                        Min = 3,
-                        Max = 30,
-                        Rounding = 0,
-                        Compact = true,
-                        Suffix = " studs",
-                        Tooltip = "How far from the kick hold point the target still counts as being held.",
-                        Callback = function(ekiHoldRadius)
-                                Config.EKIHoldRadius = ekiHoldRadius
-                        end,
-                })
-
-                Gate:AddToggle("EKIGroundCheckT", {
-                        Text = "Airborne Check (no ground)",
-                        Default = true,
-                        Tooltip = "Closes the gate when the target is lying on the ground (a downward ray finds floor). Fixes EKI firing in the wrong place when the pull failed.",
-                        Callback = function(ekiGroundCheck)
-                                Config.EKIGroundCheck = ekiGroundCheck
-                        end,
-                })
-
-                local Lockdown = Tabs.Experimental:AddLeftGroupbox("Humanoid Lockdown", "lock")
-
-                Lockdown:AddToggle("EKIPlatformStandT", {
-                        Text = "Platform Stand",
-                        Default = true,
-                        Tooltip = "humanoid.PlatformStand = true — the target can't control its character at all.",
-                        Callback = function(ekiPlatformStand)
-                                Config.EKIPlatformStand = ekiPlatformStand
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIPhysicsStateT", {
-                        Text = "Physics State",
-                        Default = true,
-                        Tooltip = "humanoid:ChangeState(Physics) — the humanoid state machine stops fighting the hold.",
-                        Callback = function(ekiPhysicsState)
-                                Config.EKIPhysicsState = ekiPhysicsState
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIDisableStatesT", {
-                        Text = "Disable Humanoid States",
-                        Default = true,
-                        Tooltip = "Disables Jumping/Climbing/GettingUp/FallingDown/Seated/Swimming/Freefall/StrafingNoPhysics.",
-                        Callback = function(ekiDisableStates)
-                                Config.EKIDisableStates = ekiDisableStates
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIZeroMovementT", {
-                        Text = "Zero Walk/Jump",
-                        Default = true,
-                        Tooltip = "WalkSpeed = 0, JumpPower = 0, JumpHeight = 0 — the target can't walk or jump.",
-                        Callback = function(ekiZeroMovement)
-                                Config.EKIZeroMovement = ekiZeroMovement
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIAutoRotateT", {
-                        Text = "Disable Auto Rotate",
-                        Default = true,
-                        Callback = function(ekiAutoRotate)
-                                Config.EKIAutoRotate = ekiAutoRotate
-                        end,
-                })
-
-                Lockdown:AddToggle("EKISitLockT", {
-                        Text = "Sit Lock",
-                        Default = true,
-                        Tooltip = "humanoid.Sit = true — a seated target can't do anything.",
-                        Callback = function(ekiSitLock)
-                                Config.EKISitLock = ekiSitLock
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIAutoJumpOffT", {
-                        Text = "Disable Auto Jump",
-                        Default = true,
-                        Callback = function(ekiAutoJumpOff)
-                                Config.EKIAutoJumpOff = ekiAutoJumpOff
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIMaxSlopeZeroT", {
-                        Text = "Zero Max Slope Angle",
-                        Default = true,
-                        Callback = function(ekiMaxSlopeZero)
-                                Config.EKIMaxSlopeZero = ekiMaxSlopeZero
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIStateMachineOffT", {
-                        Text = "Disable State Machine",
-                        Default = true,
-                        Tooltip = "humanoid.EvaluateStateMachine = false.",
-                        Callback = function(ekiStateMachineOff)
-                                Config.EKIStateMachineOff = ekiStateMachineOff
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIUnequipToolsT", {
-                        Text = "Unequip Tools",
-                        Default = true,
-                        Tooltip = "humanoid:UnequipTools() — drops whatever the target is holding.",
-                        Callback = function(ekiUnequipTools)
-                                Config.EKIUnequipTools = ekiUnequipTools
-                        end,
-                })
-
-                Lockdown:AddToggle("EKIFreezeAnimationsT", {
-                        Text = "Freeze Animations",
-                        Default = false,
-                        Tooltip = "Sets every playing animation track Speed to 0 — the target freezes visually too.",
-                        Callback = function(ekiFreezeAnimations)
-                                Config.EKIFreezeAnimations = ekiFreezeAnimations
-                        end,
-                })
-
-                local ModelCtrl = Tabs.Experimental:AddLeftGroupbox("Target Model Control", "box")
-
-                ModelCtrl:AddToggle("EKITouchOffT", {
-                        Text = "No Touch Events (CanTouch/CanQuery)",
-                        Default = false,
-                        Tooltip = "CanTouch = false and CanQuery = false on every part of the target model: their touch-based mechanics (counter-grab and so on) stop firing in our simulation. May also affect raycasts on the target (silent aim etc.), so it is off by default.",
-                        Callback = function(ekiTouchOff)
-                                Config.EKITouchOff = ekiTouchOff
-                        end,
-                })
-
-                ModelCtrl:AddToggle("EKIBreakSeatWeldT", {
-                        Text = "Break Seat Weld",
-                        Default = true,
-                        Tooltip = "Disables the SeatWeld of the seat the target is sitting in (plus any SeatWeld inside their character): a seated target can't anchor itself in a seat or vehicle to resist the hold. Like a mini Sticky Anti Grab — the weld pins them to a part we don't own.",
-                        Callback = function(ekiBreakSeatWeld)
-                                Config.EKIBreakSeatWeld = ekiBreakSeatWeld
-                        end,
-                })
-
-                local Physics = Tabs.Experimental:AddRightGroupbox("Physics & Remotes", "network")
-
-                Physics:AddToggle("EKIPhysicsRepT", {
-                        Text = "PhysicsRepRootPart (hidden)",
-                        Default = true,
-                        Tooltip = "sethiddenproperty(PhysicsRepRootPart) — the core EKI trick.",
-                        Callback = function(ekiPhysicsRep)
-                                Config.EKIPhysicsRep = ekiPhysicsRep
-                        end,
-                })
-
-                Physics:AddSlider("EKIRemoteIntervalS", {
-                        Text = "Remote Send Interval",
-                        Default = 0.3,
-                        Min = 0.05,
-                        Max = 2,
-                        Rounding = 2,
-                        Compact = true,
-                        Suffix = "s",
-                        Tooltip = "How often EKI re-applies its hidden-property physics (remote send rate). Lower = stronger but more network traffic.",
-                        Callback = function(ekiRemoteInterval)
-                                Config.EKIRemoteInterval = ekiRemoteInterval
-                        end,
-                })
-
-                Physics:AddToggle("EKINetworkSleepOffT", {
-                        Text = "Network Is Sleeping = false",
-                        Default = true,
-                        Tooltip = "sethiddenproperty(NetworkIsSleeping, false) on the held root.",
-                        Callback = function(ekiNetworkSleepOff)
-                                Config.EKINetworkSleepOff = ekiNetworkSleepOff
-                        end,
-                })
-
-                Physics:AddToggle("EKIZeroVelocityT", {
-                        Text = "Zero Velocity Loop",
-                        Default = true,
-                        Tooltip = "Zeroes the target's root velocity (linear + angular) on every EKI interval: they can never build momentum, so they can't yank themselves out of the hold.",
-                        Callback = function(ekiZeroVelocity)
-                                Config.EKIZeroVelocity = ekiZeroVelocity
-                        end,
-                })
-
-                Physics:AddToggle("EKIKeepOwnershipT", {
-                        Text = "Re-claim Ownership (SNO)",
-                        Default = true,
-                        Tooltip = "If the server hands network ownership of the target's root back to them, every local write (lockdown, velocities, CFrames) stops replicating and they break free. This re-claims the grab (SNO) while we don't own their root. Keep ON.",
-                        Callback = function(ekiKeepOwnership)
-                                Config.EKIKeepOwnership = ekiKeepOwnership
-                        end,
-                })
-
-                local ForceLift = Tabs.Experimental:AddRightGroupbox("Force Lift (Sticky-Proof)", "arrow-big-up")
-                
-                ForceLift:AddToggle("EKIForceLiftT", {
-                        Text = "Force Lift Target",
-                        Default = true,
-                        Risky = true,
-                        Tooltip = "Lifts a target that has Sticky Anti Grab WITHOUT touching their sticky parts at all. BodyPosition can't move such a target (their assembly is welded to a far part), so Force Lift lifts the model itself: claims the grab (SetNetworkOwner), then kinematically writes the CFrame of every part of the target's model (the same technique Bring Player uses) and resets their velocities. Runs on the attraction phase (before the hold gate), so sticky targets actually reach the hold point.",
-                        Callback = function(ekiForceLift)
-                                Config.EKIForceLift = ekiForceLift
-                        end,
-                })
-                
-                ForceLift:AddSlider("EKIForceLiftIntervalS", {
-                        Text = "Lift Interval",
-                        Default = 0.06,
-                        Min = 0.02,
-                        Max = 0.5,
-                        Rounding = 2,
-                        Compact = true,
-                        Suffix = "s",
-                        Tooltip = "How often the force lift re-writes the target's position while attracting/holding them. Lower = stronger pin, more remotes.",
-                        Callback = function(ekiForceLiftInterval)
-                                Config.EKIForceLiftInterval = ekiForceLiftInterval
                         end,
                 })
         end
@@ -47420,8 +47101,8 @@ local ekiOwnAt = {} -- [player] = время последнего SNO-клейм
 
                 Graphics:AddDropdown("BoostFPSOptions", {
                         Text = "Disable",
-                        Values = { "Materials", "Textures", "Reflections", "Shadows" },
-                        Default = { "Materials", "Textures", "Reflections", "Shadows" },
+                        Values = { "Materials", "Textures", "Reflections", "Shadows", "Particles", "Meshes", "Accessories", "Lighting", "Quality", "Collisions", "HumanoidAnim", "Technology", "Materials2022", "Environment", "Highlights", "Terrain", "MeshDetail", "HumanoidDisplay", "FloatingUI" },
+                        Default = { "Materials", "Textures", "Reflections", "Shadows", "Particles", "Meshes", "Accessories", "Lighting", "Quality", "Collisions", "HumanoidAnim", "Technology", "Materials2022", "Environment", "Highlights", "Terrain", "MeshDetail", "HumanoidDisplay", "FloatingUI" },
                         Multi = true,
                         AllowNull = true,
                         Callback = Hub.SetBoostFPSOptions,
