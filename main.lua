@@ -24306,17 +24306,14 @@ do
                                                         NetworkOwnerInKick = false,
                                                         DeleteShurInBlobK = true,
                                                         AntiGrab = false,
-                                                        SleepGuard = false,
                                                         AntiRagdoll = false,
                                                         StickyAntiGrab = false,
                                                         GucciAntiGrab = false,
-                                                        AntiOwner = false,
                                                         InvisibleTeleportation = false,
                                                         AntiBurn = false,
                                                         AntiExplosion = false,
                                                         AntiKick = false,
                                                         AntiKick2 = false,
-                                                        PCLDStick = false,
                                                         AntiPaint = false,
                                                         AntiBlobman = false,
                                                         AutoAntiLag = true,
@@ -24427,7 +24424,7 @@ do
                                                         InputLgDelay = 0.05,
                                                         GucciType = "CreatureBlobman",
                                                         AKType = "Shuriken",
-                                                        PCLDStickType = "Shuriken",
+                                                        StickType = "Shuriken",
                                                         AntiInputType = "FoodHamburger",
                                                         FasterEscape = 3,
                                                         AGType = "Normal",
@@ -25470,16 +25467,57 @@ do
                                                         end
                                                 end
 
-                                                Hub.RepositionLimbs = function(container7, value521)
-                                                        local humanoidRootPart = container7:FindFirstChild("HumanoidRootPart")
-                                                        local torso = container7:FindFirstChild("Torso")
+                                                Hub.RepositionLimbs = function(container7, value521, cache)
+                                                        -- [AntiGrab FPS OPT] cache — опциональная таблица кеша из цикла Anti Grab.
+                                                        -- Без cache поведение полностью прежнее (поиск каждого парта на вызов).
+                                                        -- Кеш валидируется по .Parent, так что смерть/замена любой части
+                                                        -- подхватывается тем же кадром — логика и сила не меняются.
+                                                        local humanoidRootPart, torso, neck, limbCache
+
+                                                        if cache then
+                                                                humanoidRootPart = cache.hrp
+                                                                torso = cache.torso
+                                                                neck = cache.neck
+                                                                limbCache = cache.limbs
+
+                                                                if humanoidRootPart and humanoidRootPart.Parent ~= container7 then
+                                                                        humanoidRootPart = nil
+                                                                end
+
+                                                                if torso and torso.Parent ~= container7 then
+                                                                        torso = nil
+                                                                end
+                                                        end
+
+                                                        if not humanoidRootPart then
+                                                                humanoidRootPart = container7:FindFirstChild("HumanoidRootPart")
+                                                        end
+
+                                                        if not torso then
+                                                                torso = container7:FindFirstChild("Torso")
+                                                        end
+
+                                                        if cache then
+                                                                cache.hrp = humanoidRootPart
+                                                                cache.torso = torso
+                                                        end
+
                                                         if not humanoidRootPart or not torso then
                                                                 return
                                                         end
-                                                        local neck = torso:FindFirstChild("Neck")
+
+                                                        if not neck or neck.Parent ~= torso then
+                                                                neck = torso:FindFirstChild("Neck")
+                                                        end
+
+                                                        if cache then
+                                                                cache.neck = neck
+                                                        end
+
                                                         if neck and neck.Enabled then
                                                                 return
                                                         end
+
                                                         local lookVector = humanoidRootPart.CFrame.LookVector
                                                         local vector = Vector3.new(lookVector.X, 0, lookVector.Z)
                                                         if vector.Magnitude < 0.001 then
@@ -25488,7 +25526,19 @@ do
                                                         local cframe = CFrame.lookAt(humanoidRootPart.Position, humanoidRootPart.Position + vector.Unit)
 
                                                         for k, item513 in pairs(State.LimbOffsetsRL) do
-                                                                local child49 = container7:FindFirstChild(k)
+                                                                local child49 = limbCache and limbCache[k]
+
+                                                                if child49 and child49.Parent ~= container7 then
+                                                                        child49 = nil
+                                                                end
+
+                                                                if not child49 then
+                                                                        child49 = container7:FindFirstChild(k)
+                                                                end
+
+                                                                if limbCache then
+                                                                        limbCache[k] = child49
+                                                                end
 
                                                                 if child49 and child49:IsA("BasePart") then
                                                                         local cFrame2 = cframe * item513
@@ -25541,7 +25591,7 @@ do
 
                                                 Hub.LightPhysicalProperties = PhysicalProperties.new(0.01, 0.01, 0.01, 0.01, 0.01)
 
-                                                Hub.ToggleCollisions = function(value518, canCollide, value519, value520)
+                                                Hub.ToggleCollisions = function(value518, canCollide, value519, value520, cache)
                                                         if canCollide == nil then
                                                                 canCollide = false
                                                         end
@@ -25554,37 +25604,76 @@ do
                                                                 lightPhysicalProperties = nil
                                                         end
 
-                                                        for _, child in pairs(value518:GetChildren()) do
-                                                                if child:IsA("BasePart") then
-                                                                        local name36
+                                                        -- [AntiGrab FPS OPT] cache — опциональный кеш списка BasePart-детей из цикла Anti Grab.
+                                                        -- Без cache поведение ровно то же, что и раньше (GetChildren на каждый вызов).
+                                                        -- Список валидируется каждый кадр по .Parent, добавление нового парта
+                                                        -- сбрасывает кеш через ChildAdded-хук в Anti Grab — сила не меняется.
+                                                        local baseParts
 
-                                                                        if canCollide then
-                                                                                name36 = child.Name == "Torso" or child.Name == "Head"
+                                                        if cache then
+                                                                local cachedParts = cache.parts
+
+                                                                if cachedParts then
+                                                                        local valid = true
+
+                                                                        for i = 1, #cachedParts do
+                                                                                if cachedParts[i].Parent ~= value518 then
+                                                                                        valid = false
+                                                                                        break
+                                                                                end
+                                                                        end
+
+                                                                        if valid then
+                                                                                baseParts = cachedParts
                                                                         else
-                                                                                name36 = canCollide
+                                                                                cache.parts = nil
+                                                                        end
+                                                                end
+                                                        end
+
+                                                        if not baseParts then
+                                                                baseParts = {}
+
+                                                                for _, child in pairs(value518:GetChildren()) do
+                                                                        if child:IsA("BasePart") then
+                                                                                baseParts[#baseParts + 1] = child
+                                                                        end
+                                                                end
+
+                                                                if cache then
+                                                                        cache.parts = baseParts
+                                                                end
+                                                        end
+
+                                                        for _, child in ipairs(baseParts) do
+                                                                local name36
+
+                                                                if canCollide then
+                                                                        name36 = child.Name == "Torso" or child.Name == "Head"
+                                                                else
+                                                                        name36 = canCollide
+                                                                end
+
+                                                                if name36 then
+                                                                        if child.CanCollide ~= canCollide then
+                                                                                child.CanCollide = canCollide
+                                                                        end
+                                                                elseif not canCollide then
+                                                                        if child.CanCollide ~= canCollide then
+                                                                                child.CanCollide = canCollide
                                                                         end
 
-                                                                        if name36 then
-                                                                                if child.CanCollide ~= canCollide then
-                                                                                        child.CanCollide = canCollide
-                                                                                end
-                                                                        elseif not canCollide then
-                                                                                if child.CanCollide ~= canCollide then
-                                                                                        child.CanCollide = canCollide
-                                                                                end
+                                                                        if not value519 then
+                                                                                local ragdollLimbPart = child:FindFirstChild("RagdollLimbPart")
 
-                                                                                if not value519 then
-                                                                                        local ragdollLimbPart = child:FindFirstChild("RagdollLimbPart")
-
-                                                                                        if ragdollLimbPart and ragdollLimbPart.CanCollide then
-                                                                                                ragdollLimbPart.CanCollide = false
-                                                                                        end
+                                                                                if ragdollLimbPart and ragdollLimbPart.CanCollide then
+                                                                                        ragdollLimbPart.CanCollide = false
                                                                                 end
                                                                         end
+                                                                end
 
-                                                                        if child.Name ~= "HumanoidRootPart" and child.CustomPhysicalProperties ~= lightPhysicalProperties then
-                                                                                child.CustomPhysicalProperties = lightPhysicalProperties
-                                                                        end
+                                                                if child.Name ~= "HumanoidRootPart" and child.CustomPhysicalProperties ~= lightPhysicalProperties then
+                                                                        child.CustomPhysicalProperties = lightPhysicalProperties
                                                                 end
                                                         end
                                                 end
@@ -26112,6 +26201,24 @@ do
                                                 end
                                                 local number77 = math.clamp(localPlayer:GetNetworkPing(), 0, 0.35)
                                                 return cFrame2 + Hub.GetCustomVelocity(part13) * number77
+                                        end
+
+                                        -- [FPS Counter] скользящий счётчик кадров: считает кадры по RenderStepped и
+                                        -- каждые ~0.5с пересчитывает значение. Стартовое 60 (ниже порога) — до первого
+                                        -- замера режим ведёт себя "как обычно".
+                                        local fpsFrameCount, fpsWindowTime, fpsValue = 0, 0, 60
+                                        RunService.RenderStepped:Connect(function(delta)
+                                                fpsFrameCount += 1
+                                                fpsWindowTime += delta
+
+                                                if fpsWindowTime >= 0.5 then
+                                                        fpsValue = math.floor(fpsFrameCount / fpsWindowTime + 0.5)
+                                                        fpsFrameCount = 0
+                                                        fpsWindowTime = 0
+                                                end
+                                        end)
+                                        Hub.GetFPS = function()
+                                                return fpsValue
                                         end
 
                                         Hub.Grab = function(obj54, value502)
@@ -28148,7 +28255,17 @@ end
                                                 end
 
                                                 if isHeld.Value and Config.AntiGrab and not State.States["Anti Grab"] then
-                                                        Remotes.Struggle:FireServer()
+                                                        -- [AntiGrab FPS OPT] Кеш ссылок вместо поиска каждый кадр.
+                                                        -- Сила и логика не тронуты: те же ремоуты (Struggle + RagdollRemote),
+                                                        -- те же интервалы (0.0333с), та же запись CFrame каждый кадр,
+                                                        -- те же режимы (Normal / No Ragdoll / Anti-Kill / Escapes Anything).
+                                                        -- Оптимизировано только то, что жрало FPS во время захвата:
+                                                        --   * GetPlayingAnimationTracks (новая таблица каждый кадр) -> раз в 0.1с
+                                                        --   * FindFirstChild("Scream") каждый кадр -> кеш + пересканирование 0.25с
+                                                        --   * поиски Torso/Neck/конечностей каждый кадр -> валидируемый кеш
+                                                        --   * парсинг Remotes в каждом тике -> ссылки кешируются на сессию захвата
+                                                        local struggleRemote = Remotes.Struggle
+                                                        struggleRemote:FireServer()
                                                         local findFirstChild23, findFirstChild24, requiresNeck = Hub.Char()
                                                         local torso = findFirstChild23 and findFirstChild23:FindFirstChild("Torso")
                                                         local neck = torso and torso:FindFirstChild("Neck")
@@ -28175,26 +28292,32 @@ end
                                                         local startTime16 = tick() + 0.033333333333333333
                                                         local antiGrabVar8 = 0
 
+                                                        local ragdollRemote = Remotes.RagdollRemote
+                                                        local fireRagdoll = ragdollRemote and ragdollRemote.FireServer
+                                                        local ragdollPayload = sit and 0.11 or 0
+                                                        local camera = currentCamera
+                                                        local rootPart = findFirstChild24
+                                                        local limbContainer = findFirstChild23
+                                                        local struggleAnimId = "rbxassetid://7047322890"
+                                                        local screamPart = rootPart and rootPart:FindFirstChild("Scream")
+                                                        local screamScanAt = 0
+                                                        local animScanAt = 0
+
+                                                        local antigrabCache = { parts = nil, hrp = nil, torso = nil, neck = nil, limbs = {} }
+                                                        local cacheConnection = limbContainer and limbContainer.ChildAdded:Connect(function()
+                                                                antigrabCache.parts = nil
+                                                        end)
+
                                                         connection = RunService.RenderStepped:Connect(function(deltaTime)
                                                                 local now4 = tick()
 
                                                                 if now4 >= startTime16 then
-                                                                        Remotes.Struggle:FireServer()
+                                                                        struggleRemote:FireServer()
                                                                         startTime16 = now4 + 0.033333333333333333
                                                                 end
 
-                                                                if findFirstChild24 and not antiGrabVar6 and not antiGrabVar7 and now4 >= antiGrabVar8 then
-                                                                        local ragdollRemote = Remotes.RagdollRemote
-                                                                        local fireServer = ragdollRemote.FireServer
-                                                                        local antiGrabVar2
-
-                                                                        if sit then
-                                                                                antiGrabVar2 = 0.11
-                                                                        else
-                                                                                antiGrabVar2 = 0
-                                                                        end
-
-                                                                        fireServer(ragdollRemote, findFirstChild24, antiGrabVar2)
+                                                                if fireRagdoll and rootPart and not antiGrabVar6 and not antiGrabVar7 and now4 >= antiGrabVar8 then
+                                                                        fireRagdoll(ragdollRemote, rootPart, ragdollPayload)
                                                                         antiGrabVar8 = now4 + 0.033333333333333333
                                                                 end
 
@@ -28216,8 +28339,8 @@ end
                                                                         position += moveDirection * walkSpeed * deltaTime
                                                                 end
 
-                                                                if (currentCamera.CFrame.Position - currentCamera.Focus.Position).Magnitude < 1 then
-                                                                        moveDirection = currentCamera.CFrame.LookVector
+                                                                if (camera.CFrame.Position - camera.Focus.Position).Magnitude < 1 then
+                                                                        moveDirection = camera.CFrame.LookVector
                                                                 end
 
                                                                 local vector = Vector3.new(moveDirection.X, 0, moveDirection.Z)
@@ -28226,7 +28349,7 @@ end
                                                                         unit = unit:Lerp(vector.Unit, math.min(deltaTime * 12, 1)).Unit
                                                                 end
 
-                                                                Hub.ResetVelocity(findFirstChild24 or torso)
+                                                                Hub.ResetVelocity(rootPart or torso)
 
                                                                 if position35 then
                                                                         local cFrame32 = torso
@@ -28241,22 +28364,44 @@ end
                                                                 requiresNeck.Sit = sit
 
                                                                 if not neck or not neck.Enabled then
-                                                                        Hub.ToggleCollisions(findFirstChild23, false)
-                                                                        Hub.RepositionLimbs(findFirstChild23, true)
+                                                                        Hub.ToggleCollisions(limbContainer, false, nil, nil, antigrabCache)
+                                                                        Hub.RepositionLimbs(limbContainer, true, antigrabCache)
                                                                 end
 
-                                                                for _, item474 in ipairs(requiresNeck:GetPlayingAnimationTracks()) do
-                                                                        if item474.Animation.AnimationId == "rbxassetid://7047322890" then
-                                                                                item474:Stop()
+                                                                -- скан анимаций раз в 0.1с вместо каждого кадра (раньше —
+                                                                -- новая таблица GetPlayingAnimationTracks на каждый кадр).
+                                                                if now4 >= animScanAt then
+                                                                        animScanAt = now4 + 0.1
+
+                                                                        for _, item474 in ipairs(requiresNeck:GetPlayingAnimationTracks()) do
+                                                                                if item474.Animation.AnimationId == struggleAnimId then
+                                                                                        item474:Stop()
+                                                                                end
                                                                         end
                                                                 end
 
-                                                                if findFirstChild24 and findFirstChild24:FindFirstChild("Scream") then
-                                                                        findFirstChild24.Scream.Playing = false
+                                                                -- Scream-звук глушим через кеш: поиск заново только если
+                                                                -- ссылка умерла, и не чаще 0.25с. Поведение то же.
+                                                                if screamPart then
+                                                                        if screamPart.Parent then
+                                                                                screamPart.Playing = false
+                                                                        else
+                                                                                screamPart = nil
+                                                                                screamScanAt = now4 + 0.25
+                                                                        end
+                                                                elseif rootPart and now4 >= screamScanAt then
+                                                                        screamScanAt = now4 + 0.25
+                                                                        local foundScream = rootPart:FindFirstChild("Scream")
+
+                                                                        if foundScream then
+                                                                                screamPart = foundScream
+                                                                                foundScream.Playing = false
+                                                                        end
                                                                 end
 
                                                                 if not isHeld.Value or not Config.AntiGrab then
                                                                         State.States["Anti Grab"] = false
+
                                                                         if sit then
                                                                                 task.delay(0.1, function()
                                                                                         if not requiresNeck.SeatPart then
@@ -28267,29 +28412,16 @@ end
                                                                         end
 
                                                                         requiresNeck.AutoRotate = true
+
+                                                                        if cacheConnection then
+                                                                                cacheConnection:Disconnect()
+                                                                        end
+
                                                                         connection:Disconnect()
                                                                 end
                                                         end)
                                                 end
                                         end
-
-                                        local antiKickConnection = nil
-                                        local antiKickToy = nil
-                                        local antiKickSticky = nil
-                                        local stickRetry = setmetatable({}, { __mode = "k" })
-                                        local nextSpawn = 0
-                                        local spawningToy = false
-                                        local antiKickGen = 0
-                                        local antiKickStickNames = {
-                                                Shuriken = { "NinjaShuriken" },
-                                                Pickaxe = { "ToolPickaxe" },
-                                                Katana = { "NinjaKatana" },
-                                        }
-                                        local antiKickStickOffsets = {
-                                                Shuriken = CFrame.new(),
-                                                Pickaxe = CFrame.new(0.55, 3, 0) * CFrame.Angles(0, 0, math.rad(20)),
-                                                Katana = CFrame.new(-0.55, 3, 0) * CFrame.Angles(0, math.rad(90), math.rad(75)),
-                                        }
 
                                         State.StickOffsets = {
                                                 Off = {
@@ -28297,194 +28429,16 @@ end
                                                         Pickaxe = { x = 1, y = -1.35, z = -0.75, rx = -180, ry = 0, rz = -91 },
                                                         Katana = { x = -0.45, y = -1, z = 0.7, rx = -90, ry = 140, rz = 180 },
                                                 },
-                                                On = {
-                                                        Shuriken = { x = 0, y = -0.3, z = 0, rx = 90, ry = 0, rz = 0 },
-                                                        Pickaxe = { x = 1, y = -0.35, z = -0.55, rx = -180, ry = 0, rz = -91 },
-                                                        Katana = { x = -0.45, y = 0, z = 0.9, rx = -90, ry = 140, rz = 180 },
-                                                },
                                         }
 
                                         Hub.GetStickOffsetEntry = function(stickType)
-                                                local mode = Config.PCLDStick and "On" or "Off"
-                                                local set = State.StickOffsets[mode] or State.StickOffsets.Off
+                                                local set = State.StickOffsets.Off
                                                 return set[stickType] or set.Shuriken
                                         end
 
                                         Hub.GetStickOffset = function(stickType)
                                                 local o = Hub.GetStickOffsetEntry(stickType)
                                                 return CFrame.new(o.x, o.y, o.z) * CFrame.Angles(math.rad(o.rx), math.rad(o.ry), math.rad(o.rz))
-                                        end
-
-                                        Hub.ClearAntiKickToy = function()
-                                                antiKickGen += 1
-
-                                                if antiKickToy then
-                                                        pcall(Hub.DestroyToy, antiKickToy)
-                                                end
-
-                                                antiKickToy = nil
-                                                antiKickSticky = nil
-                                        end
-
-                                        Hub.ResetAntiKickPCLD = function()
-                                                Hub.ClearAntiKickToy()
-                                        end
-
-                                        Hub.StopAntiKick = function()
-                                                if antiKickConnection then
-                                                        antiKickConnection:Disconnect()
-                                                        antiKickConnection = nil
-                                                end
-
-                                                Hub.ClearAntiKickToy()
-                                        end
-
-                                        local function StickToPCLD(sticky, pcld, offset)
-                                                if not (sticky and sticky.Parent and pcld and pcld.Parent) then
-                                                        return
-                                                end
-
-                                                local now = os.clock()
-
-                                                if (stickRetry[sticky] or 0) > now then
-                                                        return
-                                                end
-
-                                                stickRetry[sticky] = now + 0.25
-                                                task.spawn(function()
-                                                        local ok, owned = pcall(Hub.SNO, sticky)
-
-                                                        if ok and owned and sticky.Parent and pcld.Parent then
-                                                                Remotes.StickyPartEvent:FireServer(sticky, pcld, offset or CFrame.new())
-                                                        end
-                                                end)
-                                        end
-
-                                        Hub.AntiKickPCLD = function()
-                                                if miscFlag3 or not Config.PCLDStick or not Config.AntiKick then
-                                                        Hub.StopAntiKick()
-                                                        return
-                                                end
-
-                                                if antiKickConnection then
-                                                        return
-                                                end
-
-                                                antiKickConnection = RunService.RenderStepped:Connect(function()
-                                                        if miscFlag3 or not Config.PCLDStick or not Config.AntiKick then
-                                                                Hub.StopAntiKick()
-                                                                return
-                                                        end
-
-                                                        local char, root, hum = Hub.Char()
-
-                                                        if not (char and root and hum and hum.Health > 0) then
-                                                                return
-                                                        end
-
-                                                        local pcld = Hub.DetectPCLD(localPlayer)
-
-                                                        if not pcld or not pcld.Parent then
-                                                                local bestDist = math.huge
-                                                                local bestPart = nil
-
-                                                                for part in State.PCLDParts, nil, nil do
-                                                                        if part.Parent and part:IsA("BasePart") then
-                                                                                local dist = (part.Position - root.Position).Magnitude
-
-                                                                                if dist < bestDist then
-                                                                                        bestPart = part
-                                                                                        bestDist = dist
-                                                                                end
-                                                                        end
-                                                                end
-
-                                                                pcld = bestPart
-                                                        end
-
-                                                        if not pcld then
-                                                                return
-                                                        end
-
-                                                        if antiKickToy and not antiKickToy.Parent then
-                                                                antiKickToy = nil
-                                                                antiKickSticky = nil
-                                                        end
-
-                                                        if not antiKickToy and not spawningToy and os.clock() >= nextSpawn then
-                                                                nextSpawn = os.clock() + 1
-                                                                spawningToy = true
-                                                                local gen = antiKickGen
-                                                                local wantType = Options.PCLDStickType
-
-                                                                task.spawn(function()
-                                                                        local names = antiKickStickNames[wantType] or antiKickStickNames.Shuriken
-                                                                        local toy = nil
-
-                                                                        for _, name in ipairs(names) do
-                                                                                toy = Hub.SpawnToy(name)
-
-                                                                                if toy then
-                                                                                        break
-                                                                                end
-                                                                        end
-
-                                                                        spawningToy = false
-
-                                                                        if toy and gen == antiKickGen and Config.PCLDStick and Options.PCLDStickType == wantType then
-                                                                                antiKickToy = toy
-                                                                                antiKickSticky = nil
-                                                                        elseif toy then
-                                                                                pcall(Hub.DestroyToy, toy)
-                                                                        end
-                                                                end)
-                                                        end
-
-                                                        if antiKickToy then
-                                                                if not antiKickSticky or not antiKickSticky.Parent then
-                                                                        antiKickSticky = antiKickToy:FindFirstChild("StickyPart", true)
-                                                                end
-
-                                                                local sticky = antiKickSticky
-
-                                                                if sticky then
-                                                                        local weld = sticky:FindFirstChild("StickyWeld")
-
-                                                                        if not weld or weld.Part1 ~= pcld then
-                                                                                StickToPCLD(sticky, pcld, Hub.GetStickOffset(Options.PCLDStickType))
-                                                                        elseif (stickRetry[sticky] or 0) <= os.clock() then
-                                                                                stickRetry[sticky] = os.clock() + 0.25
-                                                                                task.spawn(function()
-                                                                                        pcall(Hub.SNO, sticky)
-                                                                                end)
-                                                                        end
-                                                                end
-                                                        end
-
-                                                        for _, bodyPart in ipairs(char:GetDescendants()) do
-                                                                if bodyPart:IsA("BasePart") then
-                                                                        for _, connected in ipairs(bodyPart:GetConnectedParts()) do
-                                                                                if connected.Name == "StickyPart" and connected ~= antiKickSticky then
-                                                                                        local toy = Hub.FindNicePart(connected.Parent)
-
-                                                                                        if toy then
-                                                                                                for _, obj in ipairs(toy:GetDescendants()) do
-                                                                                                        if obj:IsA("WeldConstraint") or obj:IsA("Weld") then
-                                                                                                                local part0, part1 = obj.Part0, obj.Part1
-
-                                                                                                                if (part0 and part0:IsDescendantOf(char)) or (part1 and part1:IsDescendantOf(char)) then
-                                                                                                                        obj:Destroy()
-                                                                                                                end
-                                                                                                        end
-                                                                                                end
-                                                                                        end
-
-                                                                                        StickToPCLD(connected, pcld, CFrame.new())
-                                                                                end
-                                                                        end
-                                                                end
-                                                        end
-                                                end)
                                         end
 
                                         do
@@ -39393,7 +39347,7 @@ Escape Timer: %*]]
                         end
 
                         local function stickyWeld3(part7)
-                                local toyName = antiKickToyNames[Options.PCLDStickType] or "NinjaShuriken"
+                                local toyName = antiKickToyNames[Options.StickType] or "NinjaShuriken"
                                 local NinjaShuriken = Hub.SpawnToy(toyName, part7.CFrame + Vector3.new(0, 15, 0), 3, true)
                                 local stickyPart = NinjaShuriken and NinjaShuriken:WaitForChild("StickyPart", 1.5)
                                 local stickyWeld = stickyPart and stickyPart:WaitForChild("StickyWeld", 1.5)
@@ -39422,14 +39376,6 @@ Escape Timer: %*]]
                                                 end
                                         end
 
-                                        if Config.PCLDStick then
-                                                if getChildren12 then
-                                                        Hub.DestroyToy(getChildren12)
-                                                        getChildren12 = nil
-                                                end
-
-                                                continue
-                                        end
 
                                         if antiKickResetLast ~= (State.AntiKickResetGen or 0) then
                                                 antiKickResetLast = State.AntiKickResetGen or 0
@@ -39490,7 +39436,7 @@ Escape Timer: %*]]
                                                                                                 end
                                                                                         end)
 
-                                                                                        Remotes.StickyPartEvent:FireServer(stickyPart, ragdollTouchedHitbox, Hub.GetStickOffset(Options.PCLDStickType))
+                                                                                        Remotes.StickyPartEvent:FireServer(stickyPart, ragdollTouchedHitbox, Hub.GetStickOffset(Options.StickType))
                                                                                         now3 = tick()
 
                                                                                         while true do
@@ -39589,7 +39535,7 @@ Escape Timer: %*]]
                                                                                         end
                                                                                 end)
 
-                                                                                Remotes.StickyPartEvent:FireServer(stickyPart, ragdollTouchedHitbox, Hub.GetStickOffset(Options.PCLDStickType))
+                                                                                Remotes.StickyPartEvent:FireServer(stickyPart, ragdollTouchedHitbox, Hub.GetStickOffset(Options.StickType))
                                                                                 now3 = tick()
 
                                                                                 while true do
@@ -39695,7 +39641,7 @@ Escape Timer: %*]]
                                                                                         end
                                                                                 end)
 
-                                                                                Remotes.StickyPartEvent:FireServer(stickyPart, ragdollTouchedHitbox, Hub.GetStickOffset(Options.PCLDStickType))
+                                                                                Remotes.StickyPartEvent:FireServer(stickyPart, ragdollTouchedHitbox, Hub.GetStickOffset(Options.StickType))
                                                                                 now3 = tick()
 
                                                                                 while true do
@@ -41425,6 +41371,19 @@ Escape Timer: %*]]
                                                                                         end
 
                                                                                         Hub.Grab(parent19)
+
+                                                                                        -- [FPS Check] число граб-ремоутов за кадр по счётчику FPS: ниже 90 — 1 граб,
+                                                                                        -- 90+ — 2 граба, 120+ — 3 граба (выше 120 — тоже 3). DestroyGrabLine всегда 1.
+                                                                                        local fpsNow = Hub.GetFPS()
+
+                                                                                        if fpsNow >= 90 then
+                                                                                            Hub.Grab(parent19)
+                                                                                        end
+
+                                                                                        if fpsNow >= 120 then
+                                                                                            Hub.Grab(parent19)
+                                                                                        end
+
                                                                                         Hub.RNO(parent19)
                                                                                         
                                                                                         -- [Anti-Grab Bypass] контра анти-грабу цели: держим физику активной,
@@ -43032,16 +42991,8 @@ Escape Timer: %*]]
                                 Hub.SetRuntimeToggle("AntiKick", value175)
                                 Hub.WakeRuntimeGate("PCLDTracking")
 
-                                if toggles.PCLDStick then
-                                        toggles.PCLDStick:SetVisible(value175)
-                                end
-
-                                if options.PCLDStickType then
-                                        options.PCLDStickType:SetVisible(value175)
-                                end
-
-                                if Config.PCLDStick then
-                                        Hub.AntiKickPCLD()
+                                if options.StickType then
+                                        options.StickType:SetVisible(value175)
                                 end
                         end,
                 })
@@ -43567,7 +43518,7 @@ Escape Timer: %*]]
                                                         local sOk, speed = pcall(function() return track.Speed end)
                                                         session.frozenTracks[track] = (sOk and speed) or 1
                                                 end
-                                                pcall(function() track:AdjustSpeed(0) end)
+                                                pcall(track.AdjustSpeed, track, 0)
                                         end
                                 end
 
@@ -43585,11 +43536,12 @@ Escape Timer: %*]]
 
                                 -- Верификация: приклеен ли stickyPart?
                                 -- Оффсет 1e98 делает |Position| астрономическим (или +inf/NaN).
+                                -- [FPS OPT] чтение CFrame без pcall-замыкания на каждый кадр:
+                                -- после проверки .Parent чтение свойства у живого парта кинуть
+                                -- исключение не может. Логика проверки не изменилась.
                                 local function isStillStuck(stickyPart)
                                         if not stickyPart or not stickyPart.Parent then return false end
-                                        local ok, cframe = pcall(function() return stickyPart.CFrame end)
-                                        if not ok or not cframe then return false end
-                                        local pos = cframe.Position
+                                        local pos = stickyPart.CFrame.Position
                                         local mag = pos.Magnitude
                                         if mag ~= mag then return true end   -- NaN = экстремальное значение = приклеен
                                         return mag > STUCK_MAGNITUDE
@@ -43605,9 +43557,11 @@ Escape Timer: %*]]
                                                 and soundPart and soundPart.Parent
                                                 and not soundPart:FindFirstChild("PartOwner")
                                         do
-                                                pcall(function()
-                                                        Remotes.SetNetworkOwner:FireServer(soundPart, soundPart.CFrame)
-                                                end)
+                                                local sno = Remotes.SetNetworkOwner
+
+                                                if sno then
+                                                        pcall(sno.FireServer, sno, soundPart, soundPart.CFrame)
+                                                end
                                                 RunService.Heartbeat:Wait()
                                         end
                                         return soundPart ~= nil
@@ -43725,6 +43679,7 @@ Escape Timer: %*]]
                                 task.spawn(function()
                                         local lastCharacter    = nil
                                         local lastSpawnRequest = 0
+                                        local lastFreeze        = 0
 
                                         while Config.StickyAntiGrab do
                                                 RunService.Heartbeat:Wait()
@@ -43759,7 +43714,14 @@ Escape Timer: %*]]
                                                         end
 
                                                         -- Умная заморозка анимаций (с восстановлением при teardown).
-                                                        freezeAnimations(humanoid)
+                                                        -- [FPS OPT] раз в 0.1с вместо каждого Heartbeat: заморозка не влияет
+                                                        -- на клейм сети и стрик, новый трек всё равно заморозится за ~6 кадров.
+                                                        local nowFreeze = tick()
+
+                                                        if nowFreeze - lastFreeze >= 0.1 then
+                                                                lastFreeze = nowFreeze
+                                                                freezeAnimations(humanoid)
+                                                        end
                                                 end
                                         end
 
@@ -43772,103 +43734,6 @@ Escape Timer: %*]]
                         end,
                 })
 
-                Antis:AddToggle("SleepGuard", {
-                        Text = "Sleep Guard",
-                        Default = false,
-                        Tooltip = "Cancels hidden properties others set on you so you are harder to grab",
-                        Callback = function(sleepGuard)
-                                Config.SleepGuard = sleepGuard
-
-                                -- Сами мы sleep-свойства больше не ставим — на выключение чистить нечего.
-                                if not sleepGuard then
-                                        return
-                                end
-
-                                task.spawn(function()
-                                        -- Sleep Guard (наоборот): каждый кадр откатываем скрытые свойства, которые
-                                        -- чужие грабы ставят на наше тело — NetworkIsSleeping=true (усыпляет/замораживает
-                                        -- ассамблею, чтобы держать) и PhysicsRepRootPart (перенаправление репликации физики).
-                                        -- Все парты тела держим проснувшимися и с чистым корнем репликации — взять тяжелее.
-                                        while Config.SleepGuard and notifyHelper31() do
-                                                local character, hrp = Hub.Char()
-
-                                                if character and hrp and typeof(sethiddenproperty) == "function" then
-                                                        for _, part in ipairs(character:GetDescendants()) do
-                                                                if part:IsA("BasePart") then
-                                                                        pcall(sethiddenproperty, part, "NetworkIsSleeping", false)
-                                                                        pcall(sethiddenproperty, part, "PhysicsRepRootPart", nil)
-                                                                end
-                                                        end
-                                                end
-                                        end
-                                end)
-                        end,
-                })
-                Antis:AddToggle("AntiOwner", {
-                        Text = "Anti Owner",
-                        Default = false,
-                        Tooltip = "Spams a held burger so nobody can steal network ownership of you",
-                        Callback = function(antiOwner)
-                                Config.AntiOwner = antiOwner
-
-                                -- Выключение — снос всех оставшихся бургеров.
-                                local function cleanupBurgers()
-                                        local toysFolder = name45
-
-                                        if not toysFolder then
-                                                return
-                                        end
-
-                                        for _, toy in pairs(toysFolder:GetChildren()) do
-                                                if toy.Name == "FoodHamburger" then
-                                                        pcall(Hub.DestroyToy, toy)
-                                                end
-                                        end
-                                end
-
-                                if not antiOwner then
-                                        cleanupBurgers()
-
-                                        return
-                                end
-
-                                task.spawn(function()
-                                        -- Anti Owner (порт из Resistan): каждый цикл спавним FoodHamburger высоко над собой,
-                                        -- заставляем персонажа ДЕРЖАТЬ его (HoldItemRemoteFunction) и сразу сносим.
-                                        -- Пока персонаж держит предмет, чужие GrabEvents не могут забрать ownership нашего персонажа.
-                                        while Config.AntiOwner and notifyHelper31() do
-                                                local character, rootPart = Hub.Char()
-
-                                                if character and rootPart then
-                                                        local foodHamburger = Hub.SpawnToy("FoodHamburger", rootPart.CFrame * CFrame.new(0, 400000, 20))
-
-                                                        if foodHamburger and foodHamburger.Parent then
-                                                                local holdPart = foodHamburger:WaitForChild("HoldPart", 1)
-
-                                                                if holdPart then
-                                                                        local holdItemRemoteFunction = holdPart:WaitForChild("HoldItemRemoteFunction", 1)
-
-                                                                        if holdItemRemoteFunction then
-                                                                                pcall(function()
-                                                                                        holdItemRemoteFunction:InvokeServer(foodHamburger, character)
-                                                                                end)
-
-                                                                                task.wait(math.max(localPlayer:GetNetworkPing(), 0.05))
-                                                                        end
-                                                                end
-
-                                                                if foodHamburger.Parent then
-                                                                        pcall(Hub.DestroyToy, foodHamburger)
-                                                                end
-                                                        end
-                                                end
-                                        end
-
-                                        -- Финальный teardown — снос всех бургеров.
-                                        cleanupBurgers()
-                                end)
-                        end,
-                })
         end
 
         do
@@ -44224,39 +44089,23 @@ Escape Timer: %*]]
                         end,
                 })
 
-                Config:AddToggle("PCLDStick", {
-                        Text = "PCLD Stick",
-                        Default = false,
-                        Tooltip = "An addition to Anti Kick. Spawns the selected toy and sticks it into your assigned PlayerCharacterLocationDetector with the StickyPartEvent remote (never onto your character), re-taking its network ownership every frame, so ping does not matter and it is extremely hard for anyone else to claim. Also tears incoming sticks off you and re-sticks them to the PCLD. When this is on, it replaces the default Anti Kick toy logic.",
-                        Callback = function(pcldStick)
-                                Config.PCLDStick = pcldStick
-                                Hub.AntiKickPCLD()
-                                State.AntiKickResetGen = (State.AntiKickResetGen or 0) + 1
-                        end,
-                })
-
-                Config:AddDropdown("PCLDStickType", {
+                Config:AddDropdown("StickType", {
                         Values = { "Shuriken", "Pickaxe", "Katana" },
                         Default = 1,
                         Multi = false,
                         Text = "Stick Type",
-                        Tooltip = "Which toy gets spawned. Used by both PCLD Stick and the default Anti Kick. Pickaxe and Katana hang at belt height on the PCLD, Shuriken sits right on it.",
+                        Tooltip = "Which toy the default Anti Kick spawns: Shuriken, Pickaxe or Katana.",
                         Callback = function(stickType)
-                                Options.PCLDStickType = stickType
+                                Options.StickType = stickType
                                 State.AntiKickResetGen = (State.AntiKickResetGen or 0) + 1
-                                Hub.ResetAntiKickPCLD()
                         end,
                 })
 
                 do
                         local antiKickOn = toggles.AntiKick and toggles.AntiKick.Value or false
 
-                        if toggles.PCLDStick then
-                                toggles.PCLDStick:SetVisible(antiKickOn)
-                        end
-
-                        if options.PCLDStickType then
-                                options.PCLDStickType:SetVisible(antiKickOn)
+                        if options.StickType then
+                                options.StickType:SetVisible(antiKickOn)
                         end
                 end
         end
